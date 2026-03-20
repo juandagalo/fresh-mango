@@ -88,9 +88,10 @@ func (d DashboardModel) renderSysInfo() string {
 }
 
 func (d DashboardModel) renderTemperature() string {
+	boxHeight := 6
 	title := titleStyle.Render("Temperature")
 	if len(d.fans) == 0 {
-		return boxStyle.Width(38).Render(title + "\n" + dimStyle.Render("  No data"))
+		return boxStyle.Width(38).Height(boxHeight).Render(title + "\n" + dimStyle.Render("  No data"))
 	}
 	temp := d.fans[0].Temperature
 	bar := renderBar(temp, 100, 24)
@@ -98,7 +99,7 @@ func (d DashboardModel) renderTemperature() string {
 		tempColor(temp).Render(fmt.Sprintf("%5.1f°C", temp)),
 		bar,
 	)
-	return boxStyle.Width(38).Render(title + "\n" + line)
+	return boxStyle.Width(38).Height(boxHeight).Render(title + "\n" + line)
 }
 
 func (d DashboardModel) renderFans() string {
@@ -107,6 +108,7 @@ func (d DashboardModel) renderFans() string {
 	}
 
 	fanBoxWidth := 30
+	boxHeight := 6
 	var fanBoxes []string
 	for _, f := range d.fans {
 		bar := renderBar(f.CurrentSpeed, 100, 20)
@@ -128,6 +130,7 @@ func (d DashboardModel) renderFans() string {
 			BorderForeground(colorBorderDim).
 			Padding(0, 1).
 			Width(fanBoxWidth).
+			Height(boxHeight).
 			Render(titleStyle.Render(f.Name) + "\n" + content)
 
 		fanBoxes = append(fanBoxes, fanBox)
@@ -194,7 +197,11 @@ func (d DashboardModel) renderMiniCurve() string {
 	sb.WriteString("\n")
 	sb.WriteString(dimStyle.Render("     0°C      25°      50°      75°   100°"))
 
-	return boxStyle.Render(title + "\n" + sb.String())
+	curveWidth := d.width - 4
+	if curveWidth < 40 {
+		curveWidth = 40
+	}
+	return boxStyle.Width(curveWidth).Render(title + "\n" + sb.String())
 }
 
 func renderBar(value, max float64, width int) string {
