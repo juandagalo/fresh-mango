@@ -10,6 +10,31 @@ import (
 	"github.com/mango/freshMango/internal/nbfc"
 )
 
+// startupState tracks the smart entry-point detection state machine.
+type startupState int
+
+const (
+	stateChecking    startupState = iota // initial: running checks
+	stateNeedsInstall                     // nbfc not found
+	stateNeedsConfig                      // nbfc installed but no config set
+	stateNeedsStart                       // configured but service stopped
+	stateReady                            // all good, show hub
+)
+
+// startupResultMsg carries the async detection results back to Update.
+type startupResultMsg struct {
+	installed  bool
+	configured bool   // has a config set
+	configName string // active config name
+	running    bool   // service is active
+	err        error
+}
+
+// serviceStartMsg carries the result of an async nbfc start attempt.
+type serviceStartMsg struct {
+	err error
+}
+
 // viewID identifies each navigable view in the hub-and-spoke model.
 type viewID int
 
@@ -42,6 +67,8 @@ type App struct {
 	width, height int
 	configName    string
 	serviceOn     bool
+	startup       startupState
+	statusMsg     string // transient message shown in status bar (e.g. warnings)
 }
 
 func NewApp() App {
@@ -51,6 +78,7 @@ func NewApp() App {
 		dashboard:   NewDashboard(),
 		curveEditor: NewCurveEditor(),
 		setup:       NewSetup(),
+		startup:     stateChecking,
 	}
 }
 
@@ -69,7 +97,7 @@ func (a App) activeViewID() viewID {
 }
 
 func (a App) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+	return startupCheckCmd()
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -101,6 +129,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.popView()
 			return a, nil
 		}
+		// Enter on hub when service needs start → start the service
+		if msg.String() == "enter" && a.startup == stateNeedsStart && a.activeViewID() == viewHub {
+			a.statusMsg = "Starting service..."
+			return a, serviceStartCmd()
+		}
 
 	case hubSelectMsg:
 		a.pushView(msg.id)
@@ -131,6 +164,46 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case configUpdatedMsg:
 		a.configName = string(msg)
+
+	case startupResultMsg:
+		if msg.err != nil {
+			// Detection failed — fall through to hub with a warning
+			a.startup = stateReady
+			a.statusMsg = fmt.Sprintf("Startup check error: %v", msg.err)
+			return a, tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+		}
+		if !msg.installed {
+			a.startup = stateNeedsInstall
+			return a, nil
+		}
+		if !msg.configured {
+			a.startup = stateNeedsConfig
+			return a, nil
+		}
+		if !msg.running {
+			a.startup = stateNeedsStart
+			a.configName = msg.configName
+			a.hub.configName = msg.configName
+			return a, tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+		}
+		// All good — ready to show the hub
+		a.startup = stateReady
+		a.configName = msg.configName
+		a.hub.configName = msg.configName
+		a.serviceOn = true
+		a.hub.serviceOn = true
+		return a, tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+
+	case serviceStartMsg:
+		if msg.err != nil {
+			a.statusMsg = fmt.Sprintf("Failed to start service: %v", msg.err)
+		} else {
+			a.startup = stateReady
+			a.serviceOn = true
+			a.hub.serviceOn = true
+			a.statusMsg = ""
+		}
+		return a, nil
 	}
 
 	// Route messages to the active view
@@ -153,10 +226,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
+	// Smart entry-point screens before showing normal hub UI
+	switch a.startup {
+	case stateChecking:
+		return a.renderStartupChecking()
+	case stateNeedsInstall, stateNeedsConfig:
+		return a.renderStartupNeedsInstall()
+	}
+
+	// stateNeedsStart and stateReady both show the hub (with optional prompt)
 	var content string
 	switch a.activeViewID() {
 	case viewHub:
 		content = a.hub.View()
+		// Overlay a service-start prompt when needed
+		if a.startup == stateNeedsStart {
+			prompt := accentStyle.Copy().Bold(true).Render("Service stopped. Press Enter to start.")
+			content = lipgloss.JoinVertical(lipgloss.Left, prompt, "", content)
+		}
 	case viewDashboard:
 		content = a.dashboard.View()
 	case viewCurveEditor:
@@ -260,11 +347,20 @@ func (a App) renderStatusBar() string {
 	}
 	left := fmt.Sprintf("  Config: %s  |  Service: %s", cfg, svc)
 
+	// Show transient status message (e.g. warnings from startup detection)
+	if a.statusMsg != "" {
+		left += dimStyle.Render("  |  ") + yellowStyle.Render(a.statusMsg)
+	}
+
 	// Navigation hints based on current view
 	var right string
 	switch a.activeViewID() {
 	case viewHub:
-		right = "  1-6: select  q: quit  "
+		if a.startup == stateNeedsStart {
+			right = "  Enter: start service  1-6: select  q: quit  "
+		} else {
+			right = "  1-6: select  q: quit  "
+		}
 	default:
 		right = "  Esc: back  q: quit (from hub)  "
 	}
@@ -283,6 +379,73 @@ func (a App) renderPlaceholder() string {
 	hint := dimStyle.Render("This feature is planned for a future release.")
 	back := dimStyle.Render("Press Esc to return to the hub.")
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", msg, "", hint, "", back)
+}
+
+// renderStartupChecking shows a branded splash while detection runs.
+func (a App) renderStartupChecking() string {
+	brand := accentStyle.Copy().Bold(true).Render("freshMango")
+	msg := dimStyle.Render("Checking system...")
+	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", msg)
+
+	// Center on screen
+	centered := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, block)
+	return bgStyle.Width(a.width).Height(a.height).Render(centered)
+}
+
+// renderStartupNeedsInstall shows a stub screen when nbfc is not found or not configured.
+func (a App) renderStartupNeedsInstall() string {
+	brand := accentStyle.Copy().Bold(true).Render("freshMango")
+	var detail string
+	if a.startup == stateNeedsInstall {
+		detail = yellowStyle.Render("nbfc-linux not found")
+	} else {
+		detail = yellowStyle.Render("nbfc-linux installed but not configured")
+	}
+	note := dimStyle.Render("Installer coming in next commit.")
+	hint := dimStyle.Render("Press ctrl+c to exit.")
+	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", detail, "", note, "", hint)
+
+	centered := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, block)
+	return bgStyle.Width(a.width).Height(a.height).Render(centered)
+}
+
+// startupCheckCmd runs async detection of nbfc state at launch.
+func startupCheckCmd() tea.Cmd {
+	return func() tea.Msg {
+		result := startupResultMsg{}
+
+		// Step 1: is nbfc installed?
+		result.installed = nbfc.IsInstalled()
+		if !result.installed {
+			return result
+		}
+
+		// Step 2: is a config selected?
+		cfg, err := nbfc.GetSelectedConfig()
+		if err != nil {
+			result.err = err
+			return result
+		}
+		if cfg != "" {
+			result.configured = true
+			result.configName = cfg
+		} else {
+			return result
+		}
+
+		// Step 3: is the service running?
+		result.running = nbfc.ServiceRunning()
+
+		return result
+	}
+}
+
+// serviceStartCmd runs nbfc.Start() asynchronously.
+func serviceStartCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := nbfc.Start()
+		return serviceStartMsg{err: err}
+	}
 }
 
 func tickCmd() tea.Cmd {
