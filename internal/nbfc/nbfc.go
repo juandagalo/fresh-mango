@@ -61,9 +61,23 @@ func IsInstalled() bool {
 	return err == nil
 }
 
-// runSilent executes a command, suppressing all output. On failure, the
-// captured stderr/stdout is included in the returned error.
-func runSilent(cmd *exec.Cmd) error {
+// runSilent executes a non-sudo command, suppressing all output. On failure,
+// the captured stderr/stdout is included in the returned error.
+func runSilent(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w\n%s", cmd.Path, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// runSudo executes a command via sudo with stdin wired to the terminal so that
+// password prompts work. Output is still captured (not sent to os.Stdout) to
+// avoid corrupting the TUI.
+func runSudo(args ...string) error {
+	cmd := exec.Command("sudo", args...)
+	cmd.Stdin = os.Stdin
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %w\n%s", cmd.Path, err, strings.TrimSpace(string(out)))
@@ -72,9 +86,8 @@ func runSilent(cmd *exec.Cmd) error {
 }
 
 func Install() error {
-	cmd := exec.Command("bash", "-c",
+	return runSudo("bash", "-c",
 		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && sudo dpkg -i nbfc-linux.deb; sudo apt install -f -y`)
-	return runSilent(cmd)
 }
 
 func Status() ([]FanStatus, error) {
@@ -141,11 +154,11 @@ func parseStatus(raw string) ([]FanStatus, error) {
 }
 
 func Start() error {
-	return runSilent(exec.Command("sudo", "nbfc", "start"))
+	return runSudo("nbfc", "start")
 }
 
 func Stop() error {
-	return runSilent(exec.Command("sudo", "nbfc", "stop"))
+	return runSudo("nbfc", "stop")
 }
 
 func Restart() error {
@@ -185,7 +198,7 @@ func GetSelectedConfig() (string, error) {
 }
 
 func SetConfig(name string) error {
-	return runSilent(exec.Command("sudo", "nbfc", "config", "-s", name))
+	return runSudo("nbfc", "config", "-s", name)
 }
 
 func ReadConfigFile(name string) (*Config, error) {
@@ -222,7 +235,7 @@ func backupConfigFile(model string) error {
 		return nil // nothing to back up
 	}
 
-	return runSilent(exec.Command("sudo", "cp", src, dst))
+	return runSudo("cp", src, dst)
 }
 
 // RestoreBackup copies the .bak file back over the config and restarts nbfc.
@@ -234,7 +247,7 @@ func RestoreBackup(model string) error {
 		return fmt.Errorf("no backup file found for %s", model)
 	}
 
-	if err := runSilent(exec.Command("sudo", "cp", src, dst)); err != nil {
+	if err := runSudo("cp", src, dst); err != nil {
 		return fmt.Errorf("restore backup: %w", err)
 	}
 	if err := Restart(); err != nil {
@@ -254,10 +267,14 @@ func SaveAndRestart(cfg *Config) error {
 		// Restart failed — attempt to restore the backup.
 		src := backupPath(cfg.NotebookModel)
 		dst := configPath(cfg.NotebookModel)
-		if restoreErr := runSilent(exec.Command("sudo", "cp", src, dst)); restoreErr == nil {
-			_ = Restart()
+		restoreErr := runSudo("cp", src, dst)
+		if restoreErr != nil {
+			return fmt.Errorf("config failed AND restore failed: %w. Manual restore needed from .bak file", restoreErr)
 		}
-		return fmt.Errorf("config caused nbfc to fail. Original config restored")
+		if restartErr := Restart(); restartErr != nil {
+			return fmt.Errorf("config failed, original restored but service won't start: %w", restartErr)
+		}
+		return fmt.Errorf("config failed, original restored successfully")
 	}
 	return nil
 }
@@ -282,21 +299,30 @@ func WriteConfigFile(config *Config) error {
 	}
 
 	if original != nil {
-		// Marshal our struct to a map so we can merge.
-		structData, err := json.Marshal(config)
-		if err != nil {
-			return err
-		}
-		var structMap map[string]interface{}
-		if err := json.Unmarshal(structData, &structMap); err != nil {
-			return err
-		}
-
-		// Overlay all fields from our struct onto the original map.
-		// This preserves any keys in the original that our struct doesn't have,
-		// while updating everything we do model.
-		for k, v := range structMap {
-			original[k] = v
+		// Surgically update only TemperatureThresholds within each
+		// FanConfiguration so that optional fields we don't model in Go
+		// (EcPollInterval, CriticalTemperatureOffset, etc.) are preserved
+		// exactly as they appear in the original JSON.
+		if origFans, ok := original["FanConfigurations"].([]interface{}); ok {
+			for i, fan := range config.FanConfigurations {
+				if i >= len(origFans) {
+					break
+				}
+				origFan, ok := origFans[i].(map[string]interface{})
+				if !ok {
+					continue
+				}
+				// Marshal only the new TemperatureThresholds from our struct.
+				threshData, err := json.Marshal(fan.TemperatureThresholds)
+				if err != nil {
+					return err
+				}
+				var thresholds interface{}
+				if err := json.Unmarshal(threshData, &thresholds); err != nil {
+					return err
+				}
+				origFan["TemperatureThresholds"] = thresholds
+			}
 		}
 
 		data, err := json.MarshalIndent(original, "", "  ")
@@ -329,16 +355,15 @@ func writeViaSudo(data []byte, dest string) error {
 	}
 	tmp.Close()
 
-	err = runSilent(exec.Command("sudo", "cp", tmpPath, dest))
+	err = runSudo("cp", tmpPath, dest)
 	os.Remove(tmpPath)
 	return err
 }
 
 // InstallDebian downloads the latest .deb from GitHub releases and installs via dpkg.
 func InstallDebian() error {
-	cmd := exec.Command("bash", "-c",
+	return runSudo("bash", "-c",
 		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && sudo dpkg -i nbfc-linux.deb; sudo apt-get install -f -y`)
-	return runSilent(cmd)
 }
 
 // InstallArch installs nbfc-linux on Arch-based distributions.
@@ -346,18 +371,17 @@ func InstallDebian() error {
 func InstallArch() error {
 	// Try yay first
 	if _, err := exec.LookPath("yay"); err == nil {
-		return runSilent(exec.Command("yay", "-S", "--noconfirm", "nbfc-linux"))
+		return runSilent("yay", "-S", "--noconfirm", "nbfc-linux")
 	}
 
 	// Try paru
 	if _, err := exec.LookPath("paru"); err == nil {
-		return runSilent(exec.Command("paru", "-S", "--noconfirm", "nbfc-linux"))
+		return runSilent("paru", "-S", "--noconfirm", "nbfc-linux")
 	}
 
 	// Fallback: download binary from GitHub releases
-	cmd := exec.Command("bash", "-c",
+	return runSudo("bash", "-c",
 		`cd /tmp && curl -L -o nbfc-linux.tar.gz "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*x86_64.tar.gz' | head -1 | cut -d'"' -f4)" && sudo tar -xzf nbfc-linux.tar.gz -C /usr/local && sudo ln -sf /usr/local/bin/nbfc /usr/bin/nbfc`)
-	return runSilent(cmd)
 }
 
 // RecommendConfigs runs `nbfc config -r` and parses the output as a list of config names.
@@ -561,5 +585,5 @@ func ServiceRunning() bool {
 }
 
 func EnableService() error {
-	return runSilent(exec.Command("sudo", "bash", "-c", "systemctl enable nbfc_service && systemctl start nbfc_service"))
+	return runSudo("bash", "-c", "systemctl enable nbfc_service && systemctl start nbfc_service")
 }
