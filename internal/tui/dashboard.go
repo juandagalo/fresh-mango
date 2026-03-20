@@ -36,13 +36,7 @@ func (d DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 	case sysInfoMsg:
 		d.sysInfo = msg
 	case tickMsg:
-		fans, err := nbfc.Status()
-		if err != nil {
-			d.err = err
-		} else {
-			d.fans = fans
-			d.err = nil
-		}
+		// Fan data is populated by App.refreshStatus() to avoid duplicate nbfc.Status() calls.
 		if d.config == nil {
 			if cfgName, err := nbfc.GetSelectedConfig(); err == nil && cfgName != "" {
 				if cfg, err := nbfc.ReadConfigFile(cfgName); err == nil {
@@ -342,7 +336,7 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 	// X-axis — 5 spaces to align with "%4d%│" (5 visible chars + 1 border)
 	sb.WriteString(dimStyle.Render("     └" + strings.Repeat("─", cols)))
 	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("      0°C     50°    100°"))
+	sb.WriteString(dimStyle.Render("      0°C     50°C   100°C"))
 
 	// Live-status indicator below the chart
 	if status != nil && status.Temperature > 0 {

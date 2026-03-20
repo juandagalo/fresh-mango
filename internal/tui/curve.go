@@ -60,7 +60,7 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 
 	case configSavedMsg:
 		if msg.err != nil {
-			c.statusMsg = "⚠ " + msg.err.Error()
+			c.statusMsg = "⚠ Save failed: " + msg.err.Error()
 		} else {
 			c.statusMsg = "Saved & restarted nbfc"
 		}
@@ -427,10 +427,10 @@ func (c CurveEditorModel) renderChart() string {
 		col   int
 	}{
 		{"0°C", 0},
-		{"25°", cols / 4},
-		{"50°", cols / 2},
-		{"75°", cols * 3 / 4},
-		{"100°", cols - 1},
+		{"25°C", cols / 4},
+		{"50°C", cols / 2},
+		{"75°C", cols * 3 / 4},
+		{"100°C", cols - 1},
 	}
 	buf := make([]rune, cols)
 	for i := range buf {

@@ -315,7 +315,7 @@ func (a *App) refreshStatus() {
 	}
 	a.serviceOn = nbfc.ServiceRunning()
 
-	// Update hub temperature and fan speed data
+	// Update hub temperature and fan speed data, and share with dashboard
 	if fans, err := nbfc.Status(); err == nil && len(fans) > 0 {
 		a.hub.cpuTemp = fans[0].Temperature
 		speeds := make([]float64, len(fans))
@@ -323,6 +323,8 @@ func (a *App) refreshStatus() {
 			speeds[i] = f.CurrentSpeed
 		}
 		a.hub.fanSpeeds = speeds
+		a.dashboard.fans = fans
+		a.dashboard.err = nil
 	}
 }
 
