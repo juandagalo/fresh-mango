@@ -161,13 +161,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case popViewMsg:
 		wasInstaller := a.activeViewID() == viewInstaller
-		a.popView()
-		// After installer finishes, transition to ready state and start normal operations
 		if wasInstaller {
+			// Only allow popping from installer if the wizard completed
+			if a.installer.step != stepDone {
+				// Installer not complete — don't pop, keep user in wizard
+				return a, nil
+			}
+			a.popView()
 			a.startup = stateReady
 			a.refreshStatus()
 			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
 		}
+		a.popView()
 		return a, tea.ClearScreen
 
 	case tickMsg:

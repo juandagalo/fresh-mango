@@ -432,7 +432,7 @@ func (c CurveEditorModel) renderChart() string {
 		{"75°", cols * 3 / 4},
 		{"100°", cols - 1},
 	}
-	buf := make([]byte, cols)
+	buf := make([]rune, cols)
 	for i := range buf {
 		buf[i] = ' '
 	}
@@ -441,7 +441,7 @@ func (c CurveEditorModel) renderChart() string {
 		for i, ch := range p.label {
 			idx := pos + i
 			if idx >= 0 && idx < cols {
-				buf[idx] = byte(ch)
+				buf[idx] = ch
 			}
 		}
 	}
