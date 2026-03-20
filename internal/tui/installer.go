@@ -42,6 +42,8 @@ type InstallerModel struct {
 	sensors      []nbfc.SensorInfo
 	sensorInfo   string // formatted sensor assignment output
 	sensorStatus string // "checking" | "ok" | "unavailable" | "error"
+	aurHelper    string // cached AUR helper detection result (set once on entering stepInstall)
+	aurDetected  bool   // whether AUR helper detection has been done
 	width, height int
 	statusMsg    string
 	err          error
@@ -106,6 +108,11 @@ func (m InstallerModel) Update(msg tea.Msg) (InstallerModel, tea.Cmd) {
 			m.sysInfo = info
 			m.distroFamily = info.DistroFamily()
 		}
+		// Pre-detect AUR helper for arch so renderInstallStep doesn't call it per frame
+		if m.distroFamily == "arch" && !m.aurDetected {
+			m.aurDetected = true
+			m.aurHelper = "GitHub binary"
+		}
 
 	case installerInstallDoneMsg:
 		if msg.err != nil {
@@ -142,6 +149,10 @@ func (m InstallerModel) Update(msg tea.Msg) (InstallerModel, tea.Cmd) {
 		}
 
 	case installerSensorCheckMsg:
+		if m.step != stepSensors {
+			// Ignore late-arriving sensor results if user moved past this step
+			return m, nil
+		}
 		if msg.err != nil {
 			m.sensorStatus = "unavailable"
 			m.statusMsg = "Sensor detection unavailable — skipping"
@@ -181,10 +192,11 @@ func (m InstallerModel) Update(msg tea.Msg) (InstallerModel, tea.Cmd) {
 }
 
 func (m InstallerModel) handleKey(msg tea.KeyMsg) (InstallerModel, tea.Cmd) {
-	// Esc goes back one step (except on first step where it pops view)
+	// Esc goes back one step (on first step, ignore — user must complete the wizard)
 	if msg.String() == "esc" {
 		if m.step <= m.startStep {
-			return m, func() tea.Msg { return popViewMsg{} }
+			// Don't allow escaping the installer before completing setup
+			return m, nil
 		}
 		// Go back one step
 		switch m.step {
@@ -246,6 +258,10 @@ func (m InstallerModel) handleKey(msg tea.KeyMsg) (InstallerModel, tea.Cmd) {
 	case stepSensors:
 		switch msg.String() {
 		case "enter":
+			if m.sensorStatus == "checking" {
+				m.statusMsg = "Waiting for sensor check..."
+				return m, nil
+			}
 			// Accept sensor assignments and proceed
 			m.step = stepStart
 			m.statusMsg = ""
@@ -484,10 +500,9 @@ func (m InstallerModel) renderInstallStep() string {
 		sb.WriteString(dimStyle.Render("Will download the latest .deb from GitHub releases\n"))
 		sb.WriteString(dimStyle.Render("and install via dpkg + apt for dependencies.\n"))
 	case "arch":
-		// Check for AUR helpers
-		helper := "GitHub binary"
-		if _, err := nbfc.ListSensors(); err == nil {
-			// This isn't actually checking for AUR helpers here, just a placeholder
+		helper := m.aurHelper
+		if helper == "" {
+			helper = "GitHub binary"
 		}
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("Will install via AUR helper or %s.\n", helper)))
 	default:
