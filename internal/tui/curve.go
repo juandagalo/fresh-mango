@@ -267,7 +267,7 @@ func (c CurveEditorModel) View() string {
 func (c CurveEditorModel) renderTable() string {
 	thresholds := c.thresholds()
 	headers := []string{"Start °C", "Stop °C", "Speed %"}
-	colW := []int{8, 8, 8}
+	colW := []int{10, 10, 10}
 
 	var sb strings.Builder
 	// Header
@@ -276,7 +276,7 @@ func (c CurveEditorModel) renderTable() string {
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("%-*s", colW[i], h)))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("  " + strings.Repeat("─", 28)))
+	sb.WriteString(dimStyle.Render("  " + strings.Repeat("─", 34)))
 	sb.WriteString("\n")
 
 	for i, t := range thresholds {
@@ -319,7 +319,7 @@ func (c CurveEditorModel) renderTable() string {
 		sb.WriteString("\n")
 	}
 
-	return boxStyle.Width(34).Render(sb.String())
+	return boxStyle.Width(40).Render(sb.String())
 }
 
 func (c CurveEditorModel) renderChart() string {
