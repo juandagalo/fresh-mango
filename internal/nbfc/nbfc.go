@@ -87,7 +87,7 @@ func runSudo(args ...string) error {
 
 func Install() error {
 	return runSudo("bash", "-c",
-		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && sudo dpkg -i nbfc-linux.deb; sudo apt install -f -y`)
+		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && dpkg -i nbfc-linux.deb; apt install -f -y`)
 }
 
 func Status() ([]FanStatus, error) {
@@ -363,7 +363,7 @@ func writeViaSudo(data []byte, dest string) error {
 // InstallDebian downloads the latest .deb from GitHub releases and installs via dpkg.
 func InstallDebian() error {
 	return runSudo("bash", "-c",
-		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && sudo dpkg -i nbfc-linux.deb; sudo apt-get install -f -y`)
+		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && dpkg -i nbfc-linux.deb; apt-get install -f -y`)
 }
 
 // InstallArch installs nbfc-linux on Arch-based distributions.
@@ -381,7 +381,7 @@ func InstallArch() error {
 
 	// Fallback: download binary from GitHub releases
 	return runSudo("bash", "-c",
-		`cd /tmp && curl -L -o nbfc-linux.tar.gz "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*x86_64.tar.gz' | head -1 | cut -d'"' -f4)" && sudo tar -xzf nbfc-linux.tar.gz -C /usr/local && sudo ln -sf /usr/local/bin/nbfc /usr/bin/nbfc`)
+		`cd /tmp && curl -L -o nbfc-linux.tar.gz "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*x86_64.tar.gz' | head -1 | cut -d'"' -f4)" && tar -xzf nbfc-linux.tar.gz -C /usr/local && ln -sf /usr/local/bin/nbfc /usr/bin/nbfc`)
 }
 
 // RecommendConfigs runs `nbfc config -r` and parses the output as a list of config names.
