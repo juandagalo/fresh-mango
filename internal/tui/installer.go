@@ -99,11 +99,9 @@ func (m InstallerModel) Update(msg tea.Msg) (InstallerModel, tea.Cmd) {
 	case installerCheckInstallMsg:
 		m.installed = bool(msg)
 		if m.installed {
-			// Already installed — skip to detect
 			m.step = stepDetect
 			return m, m.detect()
 		}
-		// Detect distro family for install guidance
 		if info, err := system.Detect(); err == nil && info != nil {
 			m.sysInfo = info
 			m.distroFamily = info.DistroFamily()

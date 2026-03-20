@@ -121,7 +121,6 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 		case "r":
 			return c, c.loadConfig()
 		case "f":
-			// Switch between fans
 			if c.config != nil && len(c.config.FanConfigurations) > 1 {
 				c.fanIdx = (c.fanIdx + 1) % len(c.config.FanConfigurations)
 				c.selectedRow = 0
@@ -311,7 +310,6 @@ func (c CurveEditorModel) renderTable() string {
 	colW := []int{10, 10, 10}
 
 	var sb strings.Builder
-	// Header
 	sb.WriteString(dimStyle.Render("  # "))
 	for i, h := range headers {
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("%-*s", colW[i], h)))
@@ -394,7 +392,6 @@ func (c CurveEditorModel) renderChart() string {
 				speed = t.FanSpeed
 			}
 		}
-		// Fill from bottom up to speed level
 		filledRows := int(speed / 100.0 * float64(rows))
 		for r := rows - 1; r >= rows-filledRows; r-- {
 			if r >= 0 {

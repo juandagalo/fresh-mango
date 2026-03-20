@@ -253,7 +253,6 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 		cols = 15
 	}
 
-	// ── Grid: grid[row][col], row 0 = top (100%), row rows-1 = bottom (0%) ──
 	grid := make([][]bool, rows)
 	for i := range grid {
 		grid[i] = make([]bool, cols)
@@ -277,7 +276,6 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 		}
 	}
 
-	// ── Marker (crosshair) from live status ──
 	markerCol := -1
 	markerRow := -1
 	currentSpeed := 0.0
@@ -299,7 +297,6 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 		}
 	}
 
-	// ── Render (identical structure to curve.go renderChart) ──
 	crosshairStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4A7C75"))
 	var sb strings.Builder
 	for i := 0; i < rows; i++ {
@@ -338,7 +335,6 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 	sb.WriteString("\n")
 	sb.WriteString(dimStyle.Render("      0°C     50°C   100°C"))
 
-	// Live-status indicator below the chart
 	if status != nil && status.Temperature > 0 {
 		sb.WriteString("\n")
 		sb.WriteString(crosshairStyle.Render(fmt.Sprintf("      ▲ %.0f°C @ %.0f%%", status.Temperature, currentSpeed)))

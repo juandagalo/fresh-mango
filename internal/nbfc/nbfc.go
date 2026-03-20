@@ -230,7 +230,6 @@ func backupConfigFile(model string) error {
 	src := configPath(model)
 	dst := backupPath(model)
 
-	// Check if the source file exists before attempting backup.
 	if _, err := os.Stat(src); os.IsNotExist(err) {
 		return nil // nothing to back up
 	}

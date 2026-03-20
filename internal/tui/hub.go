@@ -79,17 +79,14 @@ func (h HubModel) Update(msg tea.Msg) (HubModel, tea.Cmd) {
 func (h HubModel) View() string {
 	var sections []string
 
-	// Header
 	header := accentStyle.Copy().Bold(true).Render("freshMango")
 	sections = append(sections, header)
 	sections = append(sections, "")
 
-	// System summary
 	summary := h.renderSummary()
 	sections = append(sections, summary)
 	sections = append(sections, "")
 
-	// Menu
 	menu := h.renderMenu()
 	sections = append(sections, menu)
 
@@ -136,19 +133,15 @@ func (h HubModel) renderMenu() string {
 	for i, item := range hubMenuItems {
 		selected := i == h.selectedItem
 
-		// Cursor marker
 		cursor := "  "
 		if selected {
 			cursor = accentStyle.Render("\u25b8 ")
 		}
 
-		// Number key
 		key := fmt.Sprintf("[%s] ", item.key)
 
-		// Label
 		label := item.label
 
-		// Description and "coming soon" note
 		desc := item.desc
 
 		if selected {

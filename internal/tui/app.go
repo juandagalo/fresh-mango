@@ -10,7 +10,6 @@ import (
 	"github.com/mango/freshMango/internal/nbfc"
 )
 
-// startupState tracks the smart entry-point detection state machine.
 type startupState int
 
 const (
@@ -258,12 +257,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
-	// Startup splash while detection runs
 	if a.startup == stateChecking {
 		return a.renderStartupChecking()
 	}
 
-	// Route view rendering
 	var content string
 	switch a.activeViewID() {
 	case viewHub:
@@ -416,7 +413,6 @@ func (a App) renderPlaceholder() string {
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", msg, "", hint, "", back)
 }
 
-// renderStartupChecking shows a branded splash while detection runs.
 func (a App) renderStartupChecking() string {
 	brand := accentStyle.Copy().Bold(true).Render("freshMango")
 	msg := dimStyle.Render("Checking system...")
@@ -448,18 +444,15 @@ func padToTerminal(output string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-// startupCheckCmd runs async detection of nbfc state at launch.
 func startupCheckCmd() tea.Cmd {
 	return func() tea.Msg {
 		result := startupResultMsg{}
 
-		// Step 1: is nbfc installed?
 		result.installed = nbfc.IsInstalled()
 		if !result.installed {
 			return result
 		}
 
-		// Step 2: is a config selected?
 		cfg, err := nbfc.GetSelectedConfig()
 		if err != nil {
 			result.err = err
@@ -472,14 +465,12 @@ func startupCheckCmd() tea.Cmd {
 			return result
 		}
 
-		// Step 3: is the service running?
 		result.running = nbfc.ServiceRunning()
 
 		return result
 	}
 }
 
-// serviceStartCmd runs nbfc.Start() asynchronously.
 func serviceStartCmd() tea.Cmd {
 	return func() tea.Msg {
 		err := nbfc.Start()
