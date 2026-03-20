@@ -330,10 +330,35 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 		sb.WriteString("\n")
 	}
 
-	// X-axis — 5 spaces to align with "%4d%│" (5 visible chars + 1 border)
+	// X-axis — 5 spaces to align with "%4d%%│" (5 visible chars + 1 border)
 	sb.WriteString(dimStyle.Render("     └" + strings.Repeat("─", cols)))
 	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("      0°C     50°C   100°C"))
+
+	// Build dynamic x-axis labels to match column count
+	positions := []struct {
+		label string
+		col   int
+	}{
+		{"0°C", 0},
+		{"25°C", cols / 4},
+		{"50°C", cols / 2},
+		{"75°C", cols * 3 / 4},
+		{"100°C", cols - 1},
+	}
+	buf := make([]rune, cols)
+	for i := range buf {
+		buf[i] = ' '
+	}
+	for _, p := range positions {
+		pos := p.col
+		for i, ch := range p.label {
+			idx := pos + i
+			if idx >= 0 && idx < cols {
+				buf[idx] = ch
+			}
+		}
+	}
+	sb.WriteString(dimStyle.Render("      " + string(buf)))
 
 	if status != nil && status.Temperature > 0 {
 		sb.WriteString("\n")
