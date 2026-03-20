@@ -61,7 +61,7 @@ func (d DashboardModel) View() string {
 	sections := []string{header, "", fanCards}
 
 	if d.config != nil && len(d.config.FanConfigurations) > 0 {
-		sections = append(sections, "", d.renderMiniCurve())
+		sections = append(sections, "", d.renderFanCurves())
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
@@ -88,33 +88,19 @@ func (d DashboardModel) contentWidth() int {
 	return w
 }
 
-func (d DashboardModel) renderFanCards() string {
-	numFans := len(d.fans)
-	if numFans == 0 {
-		return boxStyle.Width(40).Render(dimStyle.Render("No fan data"))
-	}
-
+// fanCardLayout computes the card inner width and whether to stack vertically.
+// Used by both renderFanCards() and renderFanCurves() so widths always match.
+func (d DashboardModel) fanCardLayout(numFans int) (cardWidth int, stackVertically bool) {
 	minCardWidth := 30
-	cardHeight := 5
 	gapWidth := 2
-
-	// Use the same contentWidth as the curve box for consistent alignment
 	contentWidth := d.contentWidth()
 
-	// Determine card width and layout direction
-	// Each bordered box with Padding(0,1) adds 4 chars: 2 border + 2 padding
-	// Width() is set to the inner content width (excludes border+padding)
-	var cardWidth int
-	stackVertically := false
-
 	if numFans == 1 {
-		// Single fan: use the full content width
 		cardWidth = contentWidth - 4
 		if cardWidth < minCardWidth {
 			cardWidth = minCardWidth
 		}
 	} else {
-		// Multiple fans: divide contentWidth equally, accounting for gaps and border+padding
 		totalGaps := gapWidth * (numFans - 1)
 		cardWidth = (contentWidth-totalGaps)/numFans - 4
 		if cardWidth < minCardWidth {
@@ -125,6 +111,19 @@ func (d DashboardModel) renderFanCards() string {
 			}
 		}
 	}
+	return
+}
+
+func (d DashboardModel) renderFanCards() string {
+	numFans := len(d.fans)
+	if numFans == 0 {
+		return boxStyle.Width(40).Render(dimStyle.Render("No fan data"))
+	}
+
+	cardHeight := 5
+	gapWidth := 2
+
+	cardWidth, stackVertically := d.fanCardLayout(numFans)
 
 	// Build one card per fan
 	var cards []string
@@ -191,27 +190,82 @@ func (d DashboardModel) renderFanCards() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
 }
 
-func (d DashboardModel) renderMiniCurve() string {
-	thresholds := d.config.FanConfigurations[0].TemperatureThresholds
-	if len(thresholds) == 0 {
-		return ""
+func (d DashboardModel) renderFanCurves() string {
+	// Build a list of fans that exist in both config and status
+	type fanPair struct {
+		cfg    nbfc.FanConfiguration
+		status *nbfc.FanStatus
 	}
 
-	title := titleStyle.Render("Fan Curve")
+	var pairs []fanPair
+	for i, fc := range d.config.FanConfigurations {
+		if len(fc.TemperatureThresholds) == 0 {
+			continue
+		}
+		var st *nbfc.FanStatus
+		if i < len(d.fans) {
+			s := d.fans[i]
+			st = &s
+		}
+		pairs = append(pairs, fanPair{cfg: fc, status: st})
+	}
+
+	if len(pairs) == 0 {
+		return boxStyle.Width(40).Render(dimStyle.Render("No curve data"))
+	}
+
+	numFans := len(pairs)
+	gapWidth := 2
 	rows := 8
 
-	curveWidth := d.contentWidth()
-	cols := curveWidth - 10
-	if cols < 20 {
-		cols = 20
+	// Use the same card width as renderFanCards so curves align with cards above
+	cardWidth, stackVertically := d.fanCardLayout(numFans)
+	// perChartWidth = inner cardWidth + border+padding (4) to match the outer box width
+	perChartWidth := cardWidth + 4
+
+	// Render one chart per fan
+	var charts []string
+	for _, fp := range pairs {
+		chart := d.renderSingleCurve(fp.cfg, fp.status, perChartWidth, rows)
+		charts = append(charts, chart)
 	}
 
+	if stackVertically || len(charts) == 1 {
+		return lipgloss.JoinVertical(lipgloss.Left, charts...)
+	}
+
+	// Join side by side with gaps
+	gap := strings.Repeat(" ", gapWidth)
+	parts := []string{charts[0]}
+	for i := 1; i < len(charts); i++ {
+		parts = append(parts, gap, charts[i])
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc.FanStatus, perChartWidth, rows int) string {
+	thresholds := fc.TemperatureThresholds
+
+	// Title from fan display name
+	displayName := fc.FanDisplayName
+	if displayName == "" {
+		displayName = "Fan"
+	}
+	title := titleStyle.Render(displayName + " Curve")
+
+	// Column count: box border (2) + padding (2) + y-axis labels (6+2=8) = 12 chars overhead.
+	cols := perChartWidth - 12
+	if cols < 15 {
+		cols = 15
+	}
+
+	// ── Grid: grid[row][col], row 0 = top (100%), row rows-1 = bottom (0%) ──
 	grid := make([][]bool, rows)
 	for i := range grid {
 		grid[i] = make([]bool, cols)
 	}
 
-	// For each column (temperature), find the fan speed from the curve
+	// Each COLUMN is a temperature from 0°C to 100°C
 	for col := 0; col < cols; col++ {
 		temp := float64(col) / float64(cols-1) * 100.0
 		speed := 0.0
@@ -220,7 +274,7 @@ func (d DashboardModel) renderMiniCurve() string {
 				speed = t.FanSpeed
 			}
 		}
-		// Fill from bottom up to speed level
+		// Fill from bottom up to the speed level
 		filledRows := int(speed / 100.0 * float64(rows))
 		for r := rows - 1; r >= rows-filledRows; r-- {
 			if r >= 0 {
@@ -229,14 +283,53 @@ func (d DashboardModel) renderMiniCurve() string {
 		}
 	}
 
-	// Build the chart
+	// ── Marker (crosshair) from live status ──
+	markerCol := -1
+	markerRow := -1
+	currentSpeed := 0.0
+	if status != nil && status.Temperature > 0 {
+		markerCol = int(status.Temperature / 100.0 * float64(cols-1))
+		if markerCol < 0 {
+			markerCol = 0
+		}
+		if markerCol >= cols {
+			markerCol = cols - 1
+		}
+		currentSpeed = status.CurrentSpeed
+		markerRow = rows - 1 - int(currentSpeed/100.0*float64(rows-1))
+		if markerRow < 0 {
+			markerRow = 0
+		}
+		if markerRow >= rows {
+			markerRow = rows - 1
+		}
+	}
+
+	// ── Render (identical structure to curve.go renderChart) ──
 	var sb strings.Builder
 	for i := 0; i < rows; i++ {
 		pct := 100 - (i * 100 / (rows - 1))
-		sb.WriteString(dimStyle.Render(fmt.Sprintf("%3d%%", pct)))
+		sb.WriteString(dimStyle.Render(fmt.Sprintf("%4d%%", pct)))
 		sb.WriteString(dimStyle.Render("│"))
 		for j := 0; j < cols; j++ {
-			if grid[i][j] {
+			isMarkerCol := j == markerCol && markerCol >= 0
+			isMarkerRow := i == markerRow && markerRow >= 0
+
+			if isMarkerCol && isMarkerRow {
+				sb.WriteString(greenStyle.Render("█"))
+			} else if isMarkerCol {
+				if grid[i][j] {
+					sb.WriteString(secondaryStyle.Render("█"))
+				} else {
+					sb.WriteString(secondaryStyle.Render("│"))
+				}
+			} else if isMarkerRow {
+				if grid[i][j] {
+					sb.WriteString(secondaryStyle.Render("█"))
+				} else {
+					sb.WriteString(secondaryStyle.Render("─"))
+				}
+			} else if grid[i][j] {
 				sb.WriteString(accentStyle.Render("█"))
 			} else {
 				sb.WriteString(" ")
@@ -244,38 +337,21 @@ func (d DashboardModel) renderMiniCurve() string {
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString(dimStyle.Render("    └" + strings.Repeat("─", cols)))
+
+	// X-axis — 5 spaces to align with "%4d%│" (5 visible chars + 1 border)
+	sb.WriteString(dimStyle.Render("     └" + strings.Repeat("─", cols)))
 	sb.WriteString("\n")
+	sb.WriteString(dimStyle.Render("      0°C     50°    100°"))
 
-	// Build dynamic x-axis labels
-	labelLine := "     "
-	positions := []struct {
-		label string
-		col   int
-	}{
-		{"0°C", 0},
-		{"25°", cols / 4},
-		{"50°", cols / 2},
-		{"75°", cols * 3 / 4},
-		{"100°", cols - 1},
+	// Live-status indicator below the chart
+	if status != nil && status.Temperature > 0 {
+		sb.WriteString("\n")
+		sb.WriteString(secondaryStyle.Render(fmt.Sprintf("      ▲ %.0f°C @ %.0f%%", status.Temperature, currentSpeed)))
 	}
-	buf := make([]byte, cols)
-	for i := range buf {
-		buf[i] = ' '
-	}
-	for _, p := range positions {
-		pos := p.col
-		for i, ch := range p.label {
-			idx := pos + i
-			if idx >= 0 && idx < cols {
-				buf[idx] = byte(ch)
-			}
-		}
-	}
-	labelLine += string(buf)
-	sb.WriteString(dimStyle.Render(labelLine))
 
-	return boxStyle.Width(curveWidth).Render(title + "\n" + sb.String())
+	// Use cardWidth (perChartWidth - 4) so boxStyle's own border+padding
+	// produces the same outer width as the fan cards above.
+	return boxStyle.Width(perChartWidth - 4).Render(title + "\n" + sb.String())
 }
 
 func renderBar(value, max float64, width int) string {
