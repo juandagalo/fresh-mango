@@ -102,22 +102,43 @@ func (d DashboardModel) renderTemperature() string {
 }
 
 func (d DashboardModel) renderFans() string {
-	title := titleStyle.Render("Fans")
 	if len(d.fans) == 0 {
-		return boxStyle.Width(40).Render(title + "\n" + dimStyle.Render("  No data"))
+		return boxStyle.Width(40).Render(titleStyle.Render("Fans") + "\n" + dimStyle.Render("  No data"))
 	}
-	var lines []string
+
+	fanBoxWidth := 30
+	var fanBoxes []string
 	for _, f := range d.fans {
 		bar := renderBar(f.CurrentSpeed, 100, 20)
-		auto := greenStyle.Render("auto")
+		mode := greenStyle.Render("auto")
 		if !f.AutoControl {
-			auto = yellowStyle.Render("manual")
+			mode = yellowStyle.Render("manual")
 		}
-		line := fmt.Sprintf("  %-5s %5.1f%%  %s  %s  target: %.0f%%",
-			f.Name, f.CurrentSpeed, bar, auto, f.TargetSpeed)
-		lines = append(lines, line)
+
+		content := fmt.Sprintf("%s %s\n%s\n%s %s  %s %s",
+			labelStyle.Render("Speed:"),
+			valueStyle.Render(fmt.Sprintf("%.1f%%", f.CurrentSpeed)),
+			bar,
+			labelStyle.Render("Mode:"), mode,
+			labelStyle.Render("Target:"), valueStyle.Render(fmt.Sprintf("%.0f%%", f.TargetSpeed)),
+		)
+
+		fanBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorBorderDim).
+			Padding(0, 1).
+			Width(fanBoxWidth).
+			Render(titleStyle.Render(f.Name) + "\n" + content)
+
+		fanBoxes = append(fanBoxes, fanBox)
 	}
-	return boxStyle.Width(40).Render(title + "\n" + strings.Join(lines, "\n"))
+
+	// Side-by-side if terminal is wide enough, otherwise stack vertically
+	minWidthForSideBySide := (fanBoxWidth+4)*len(fanBoxes) + 2*(len(fanBoxes)-1)
+	if d.width > minWidthForSideBySide && len(fanBoxes) > 1 {
+		return lipgloss.JoinHorizontal(lipgloss.Top, fanBoxes[0], "  ", strings.Join(fanBoxes[1:], "  "))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, fanBoxes...)
 }
 
 func (d DashboardModel) renderMiniCurve() string {
@@ -129,57 +150,51 @@ func (d DashboardModel) renderMiniCurve() string {
 	title := titleStyle.Render("Fan Curve")
 	rows := 8
 	cols := 30
-	grid := make([][]rune, rows)
+
+	grid := make([][]bool, rows)
 	for i := range grid {
-		grid[i] = make([]rune, cols)
-		for j := range grid[i] {
-			grid[i][j] = ' '
-		}
+		grid[i] = make([]bool, cols)
 	}
 
-	// Plot the stepped curve
-	for _, t := range thresholds {
-		x := int(t.UpThreshold / 100 * float64(cols-1))
-		y := rows - 1 - int(t.FanSpeed/100*float64(rows-1))
-		if x >= 0 && x < cols && y >= 0 && y < rows {
-			// Fill from this point right to next threshold or edge
-			for xi := x; xi < cols; xi++ {
-				if grid[y][xi] == ' ' || y < findLowestFilled(grid, xi) {
-					grid[y][xi] = '█'
-				}
+	// For each column (temperature), find the fan speed from the curve
+	// Same approach as curve editor renderChart()
+	for col := 0; col < cols; col++ {
+		temp := float64(col) / float64(cols-1) * 100.0
+		speed := 0.0
+		for _, t := range thresholds {
+			if temp >= t.UpThreshold {
+				speed = t.FanSpeed
+			}
+		}
+		// Fill from bottom up to speed level
+		filledRows := int(speed / 100.0 * float64(rows))
+		for r := rows - 1; r >= rows-filledRows; r-- {
+			if r >= 0 {
+				grid[r][col] = true
 			}
 		}
 	}
 
 	// Build the chart
 	var sb strings.Builder
-	for i, row := range grid {
+	for i := 0; i < rows; i++ {
 		pct := 100 - (i * 100 / (rows - 1))
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("%3d%%", pct)))
 		sb.WriteString(dimStyle.Render("│"))
-		for _, c := range row {
-			if c == '█' {
+		for j := 0; j < cols; j++ {
+			if grid[i][j] {
 				sb.WriteString(accentStyle.Render("█"))
 			} else {
-				sb.WriteRune(' ')
+				sb.WriteString(" ")
 			}
 		}
 		sb.WriteString("\n")
 	}
 	sb.WriteString(dimStyle.Render("    └" + strings.Repeat("─", cols)))
 	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("     0°        50°       100°"))
+	sb.WriteString(dimStyle.Render("     0°C      25°      50°      75°   100°"))
 
 	return boxStyle.Render(title + "\n" + sb.String())
-}
-
-func findLowestFilled(grid [][]rune, col int) int {
-	for i := len(grid) - 1; i >= 0; i-- {
-		if grid[i][col] == '█' {
-			return i
-		}
-	}
-	return len(grid)
 }
 
 func renderBar(value, max float64, width int) string {
