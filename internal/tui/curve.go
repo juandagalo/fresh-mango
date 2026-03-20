@@ -239,7 +239,7 @@ func (c CurveEditorModel) View() string {
 	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  r: reload  f: switch fan")
 	status := ""
 	if c.statusMsg != "" {
-		status = cyanStyle.Render(c.statusMsg)
+		status = accentStyle.Render(c.statusMsg)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", help, status)
@@ -269,7 +269,7 @@ func (c CurveEditorModel) renderTable() string {
 		selected := i == c.selectedRow
 
 		if selected {
-			sb.WriteString(cyanStyle.Render(fmt.Sprintf("▸ %d ", i+1)))
+			sb.WriteString(accentStyle.Render(fmt.Sprintf("▸ %d ", i+1)))
 		} else {
 			sb.WriteString(dimStyle.Render(fmt.Sprintf("  %d ", i+1)))
 		}
@@ -283,7 +283,7 @@ func (c CurveEditorModel) renderTable() string {
 					cell = fmt.Sprintf("%-*s", colW[j], display)
 					sb.WriteString(lipgloss.NewStyle().
 						Background(colorActiveBg).
-						Foreground(colorCyan).
+						Foreground(colorAccent).
 						Render(cell))
 				} else {
 					sb.WriteString(lipgloss.NewStyle().
@@ -292,7 +292,7 @@ func (c CurveEditorModel) renderTable() string {
 						Render(cell))
 				}
 			} else if selected {
-				sb.WriteString(cyanStyle.Render(cell))
+				sb.WriteString(accentStyle.Render(cell))
 			} else {
 				sb.WriteString(valueStyle.Render(cell))
 			}
@@ -338,7 +338,7 @@ func (c CurveEditorModel) renderChart() string {
 		sb.WriteString(dimStyle.Render("│"))
 		for j := 0; j < cols; j++ {
 			if grid[i][j] {
-				sb.WriteString(cyanStyle.Render("█"))
+				sb.WriteString(accentStyle.Render("█"))
 			} else {
 				sb.WriteString(" ")
 			}

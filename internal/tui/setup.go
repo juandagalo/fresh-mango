@@ -208,7 +208,7 @@ func (s SetupModel) View() string {
 		if setupStep(i) < s.step {
 			stepParts = append(stepParts, greenStyle.Render("✓ "+label))
 		} else if setupStep(i) == s.step {
-			stepParts = append(stepParts, cyanStyle.Render("▸ "+label))
+			stepParts = append(stepParts, accentStyle.Render("▸ "+label))
 		} else {
 			stepParts = append(stepParts, dimStyle.Render("  "+label))
 		}
@@ -219,7 +219,7 @@ func (s SetupModel) View() string {
 
 	status := ""
 	if s.statusMsg != "" {
-		status = "\n" + cyanStyle.Render(s.statusMsg)
+		status = "\n" + accentStyle.Render(s.statusMsg)
 	}
 	if s.err != nil {
 		status = "\n" + redStyle.Render("Error: "+s.err.Error())
@@ -304,7 +304,7 @@ func (s SetupModel) renderConfigPicker() string {
 	}
 	for i := start; i < end; i++ {
 		if i == s.selectedCfg {
-			sb.WriteString(cyanStyle.Render("  ▸ " + configs[i]))
+			sb.WriteString(accentStyle.Render("  ▸ " + configs[i]))
 		} else {
 			sb.WriteString(dimStyle.Render("    " + configs[i]))
 		}

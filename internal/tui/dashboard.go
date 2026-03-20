@@ -159,7 +159,7 @@ func (d DashboardModel) renderMiniCurve() string {
 		sb.WriteString(dimStyle.Render("│"))
 		for _, c := range row {
 			if c == '█' {
-				sb.WriteString(cyanStyle.Render("█"))
+				sb.WriteString(accentStyle.Render("█"))
 			} else {
 				sb.WriteRune(' ')
 			}
