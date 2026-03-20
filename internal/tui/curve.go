@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -180,13 +181,31 @@ func (c *CurveEditorModel) applyCellValue() {
 	case 2:
 		t.FanSpeed = val
 	}
+	c.sortThresholds()
+}
+
+func (c *CurveEditorModel) sortThresholds() {
+	fan := &c.config.FanConfigurations[c.fanIdx]
+	sort.Slice(fan.TemperatureThresholds, func(i, j int) bool {
+		return fan.TemperatureThresholds[i].UpThreshold < fan.TemperatureThresholds[j].UpThreshold
+	})
+	if c.selectedRow >= len(fan.TemperatureThresholds) {
+		c.selectedRow = len(fan.TemperatureThresholds) - 1
+	}
 }
 
 func (c *CurveEditorModel) addRow() {
 	fan := &c.config.FanConfigurations[c.fanIdx]
 	newT := nbfc.Threshold{UpThreshold: 75, DownThreshold: 70, FanSpeed: 50}
 	fan.TemperatureThresholds = append(fan.TemperatureThresholds, newT)
-	c.selectedRow = len(fan.TemperatureThresholds) - 1
+	c.sortThresholds()
+	// Select the newly added row (will be at its sorted position)
+	for i, t := range fan.TemperatureThresholds {
+		if t.UpThreshold == newT.UpThreshold && t.FanSpeed == newT.FanSpeed {
+			c.selectedRow = i
+			break
+		}
+	}
 }
 
 func (c *CurveEditorModel) deleteRow() {
@@ -247,7 +266,7 @@ func (c CurveEditorModel) View() string {
 
 func (c CurveEditorModel) renderTable() string {
 	thresholds := c.thresholds()
-	headers := []string{"Up °C", "Down °C", "Fan %"}
+	headers := []string{"Start °C", "Stop °C", "Speed %"}
 	colW := []int{8, 8, 8}
 
 	var sb strings.Builder
