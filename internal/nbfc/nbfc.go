@@ -364,13 +364,19 @@ func InstallArch() error {
 // Falls back to keyword matching if the command is not available.
 func RecommendConfigs(productName string) ([]string, error) {
 	out, err := exec.Command("nbfc", "config", "-r").CombinedOutput()
+	// Non-zero exit code is normal when there are no recommendations — just skip to fallback.
 	if err == nil {
 		var configs []string
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			line = strings.TrimSpace(line)
-			if line != "" {
-				configs = append(configs, line)
+			if line == "" {
+				continue
 			}
+			upper := strings.ToUpper(line)
+			if strings.HasPrefix(upper, "ERROR:") || strings.HasPrefix(upper, "INFO:") {
+				continue
+			}
+			configs = append(configs, line)
 		}
 		if len(configs) > 0 {
 			return configs, nil
