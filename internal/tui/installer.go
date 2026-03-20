@@ -113,6 +113,12 @@ func (m InstallerModel) Update(msg tea.Msg) (InstallerModel, tea.Cmd) {
 			m.aurDetected = true
 			m.aurHelper = "GitHub binary"
 		}
+		// If started past stepInstall but nbfc is not installed, force back to install
+		if m.step > stepInstall {
+			m.step = stepInstall
+			m.startStep = stepInstall
+			m.statusMsg = "nbfc not installed — starting from install step"
+		}
 
 	case installerInstallDoneMsg:
 		if msg.err != nil {
@@ -222,9 +228,19 @@ func (m InstallerModel) handleKey(msg tea.KeyMsg) (InstallerModel, tea.Cmd) {
 	switch m.step {
 	case stepInstall:
 		if msg.String() == "enter" && !m.installed {
+			if m.distroFamily == "" || m.distroFamily == "unknown" {
+				m.statusMsg = "Unsupported distro. Please install nbfc manually, then press 'r' to re-check."
+				return m, nil
+			}
 			m.statusMsg = "Installing nbfc-linux... (may ask for sudo password)"
 			m.err = nil
 			return m, m.installCmd()
+		}
+		if msg.String() == "r" && !m.installed {
+			m.statusMsg = "Re-checking nbfc installation..."
+			return m, func() tea.Msg {
+				return installerCheckInstallMsg(nbfc.IsInstalled())
+			}
 		}
 
 	case stepDetect:
@@ -670,22 +686,48 @@ func (m InstallerModel) renderDoneStep() string {
 }
 
 func (m InstallerModel) renderHelp() string {
+	isFirstStep := m.step <= m.startStep
+
 	switch m.step {
 	case stepInstall:
 		if m.distroFamily == "unknown" || m.distroFamily == "" {
-			return dimStyle.Render("Esc: back")
+			help := "r: re-check"
+			if !isFirstStep {
+				help += "  Esc: back"
+			}
+			return dimStyle.Render(help)
 		}
-		return dimStyle.Render("Enter: install  Esc: back")
+		help := "Enter: install  r: re-check"
+		if !isFirstStep {
+			help += "  Esc: back"
+		}
+		return dimStyle.Render(help)
 	case stepDetect:
 		return dimStyle.Render("Detecting...")
 	case stepConfigure:
-		return dimStyle.Render("↑↓/jk: navigate  Enter: select  Tab: toggle  Esc: back")
+		help := "↑↓/jk: navigate  Enter: select  Tab: toggle"
+		if !isFirstStep {
+			help += "  Esc: back"
+		}
+		return dimStyle.Render(help)
 	case stepSensors:
-		return dimStyle.Render("Enter: accept  Esc: back to configure")
+		help := "Enter: accept"
+		if !isFirstStep {
+			help += "  Esc: back to configure"
+		}
+		return dimStyle.Render(help)
 	case stepStart:
-		return dimStyle.Render("Enter: start service  Esc: back")
+		help := "Enter: start service"
+		if !isFirstStep {
+			help += "  Esc: back"
+		}
+		return dimStyle.Render(help)
 	case stepEnable:
-		return dimStyle.Render("Enter: enable  s: skip  Esc: back")
+		help := "Enter: enable  s: skip"
+		if !isFirstStep {
+			help += "  Esc: back"
+		}
+		return dimStyle.Render(help)
 	case stepDone:
 		return dimStyle.Render("Enter: go to Dashboard")
 	}
