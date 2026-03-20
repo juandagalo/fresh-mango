@@ -306,6 +306,7 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 	}
 
 	// ── Render (identical structure to curve.go renderChart) ──
+	crosshairStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4A7C75"))
 	var sb strings.Builder
 	for i := 0; i < rows; i++ {
 		pct := 100 - (i * 100 / (rows - 1))
@@ -316,18 +317,18 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 			isMarkerRow := i == markerRow && markerRow >= 0
 
 			if isMarkerCol && isMarkerRow {
-				sb.WriteString(greenStyle.Render("█"))
+				sb.WriteString(crosshairStyle.Render("◆"))
 			} else if isMarkerCol {
 				if grid[i][j] {
-					sb.WriteString(secondaryStyle.Render("█"))
+					sb.WriteString(crosshairStyle.Render("█"))
 				} else {
-					sb.WriteString(secondaryStyle.Render("│"))
+					sb.WriteString(crosshairStyle.Render("┊"))
 				}
 			} else if isMarkerRow {
 				if grid[i][j] {
-					sb.WriteString(secondaryStyle.Render("█"))
+					sb.WriteString(crosshairStyle.Render("█"))
 				} else {
-					sb.WriteString(secondaryStyle.Render("─"))
+					sb.WriteString(crosshairStyle.Render("╌"))
 				}
 			} else if grid[i][j] {
 				sb.WriteString(accentStyle.Render("█"))
@@ -346,7 +347,7 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 	// Live-status indicator below the chart
 	if status != nil && status.Temperature > 0 {
 		sb.WriteString("\n")
-		sb.WriteString(secondaryStyle.Render(fmt.Sprintf("      ▲ %.0f°C @ %.0f%%", status.Temperature, currentSpeed)))
+		sb.WriteString(crosshairStyle.Render(fmt.Sprintf("      ▲ %.0f°C @ %.0f%%", status.Temperature, currentSpeed)))
 	}
 
 	// Use cardWidth (perChartWidth - 4) so boxStyle's own border+padding
