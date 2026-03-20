@@ -22,7 +22,7 @@ var hubMenuItems = []menuItem{
 	{key: "3", label: "Curve Editor", desc: "Edit temperature thresholds", view: viewCurveEditor, ready: true},
 	{key: "4", label: "Profiles", desc: "Save/load configurations", view: viewProfiles, ready: false},
 	{key: "5", label: "Sensors", desc: "Configure temperature sources", view: viewSensors, ready: false},
-	{key: "6", label: "Settings", desc: "Service & configuration", view: viewSettings, ready: false},
+	{key: "6", label: "Settings", desc: "Service & configuration", view: viewInstaller, ready: true},
 }
 
 type HubModel struct {

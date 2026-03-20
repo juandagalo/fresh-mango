@@ -63,7 +63,7 @@ type App struct {
 	hub         HubModel
 	dashboard   DashboardModel
 	curveEditor CurveEditorModel
-	setup       SetupModel
+	installer   InstallerModel
 	width, height int
 	configName    string
 	serviceOn     bool
@@ -77,7 +77,7 @@ func NewApp() App {
 		hub:         NewHub(),
 		dashboard:   NewDashboard(),
 		curveEditor: NewCurveEditor(),
-		setup:       NewSetup(),
+		installer:   NewInstaller(),
 		startup:     stateChecking,
 	}
 }
@@ -111,8 +111,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard.height = msg.Height
 		a.curveEditor.width = msg.Width
 		a.curveEditor.height = msg.Height
-		a.setup.width = msg.Width
-		a.setup.height = msg.Height
+		a.installer.width = msg.Width
+		a.installer.height = msg.Height
 		a.hub.width = msg.Width
 		a.hub.height = msg.Height
 
@@ -124,8 +124,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "q" && !a.isEditing() && a.activeViewID() == viewHub {
 			return a, tea.Quit
 		}
-		// Esc pops the view stack (unless editing or on hub)
-		if msg.String() == "esc" && !a.isEditing() && a.activeViewID() != viewHub {
+		// Esc pops the view stack (unless editing, on hub, or in installer — installer handles its own Esc)
+		if msg.String() == "esc" && !a.isEditing() && a.activeViewID() != viewHub && a.activeViewID() != viewInstaller {
 			a.popView()
 			return a, nil
 		}
@@ -145,6 +145,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id == viewDashboard {
 			cmds = append(cmds, a.dashboard.Init())
 		}
+		// When entering installer from hub (e.g., Settings), initialize it
+		if msg.id == viewInstaller {
+			a.installer = NewInstallerAt(stepDetect)
+			a.installer.width = a.width
+			a.installer.height = a.height
+			cmds = append(cmds, a.installer.Init())
+		}
 		return a, tea.Batch(cmds...)
 
 	case pushViewMsg:
@@ -152,7 +159,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case popViewMsg:
+		wasInstaller := a.activeViewID() == viewInstaller
 		a.popView()
+		// After installer finishes, transition to ready state and start normal operations
+		if wasInstaller {
+			a.startup = stateReady
+			a.refreshStatus()
+			return a, tea.Batch(tickCmd(), a.dashboard.Init())
+		}
 		return a, nil
 
 	case tickMsg:
@@ -170,21 +184,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Detection failed — fall through to hub with a warning
 			a.startup = stateReady
 			a.statusMsg = fmt.Sprintf("Startup check error: %v", msg.err)
-			return a, tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+			return a, tea.Batch(tickCmd(), a.dashboard.Init())
 		}
 		if !msg.installed {
 			a.startup = stateNeedsInstall
-			return a, nil
+			a.installer = NewInstallerAt(stepInstall)
+			a.installer.width = a.width
+			a.installer.height = a.height
+			a.pushView(viewInstaller)
+			return a, a.installer.Init()
 		}
 		if !msg.configured {
 			a.startup = stateNeedsConfig
-			return a, nil
+			a.installer = NewInstallerAt(stepDetect)
+			a.installer.width = a.width
+			a.installer.height = a.height
+			a.pushView(viewInstaller)
+			return a, a.installer.Init()
 		}
 		if !msg.running {
 			a.startup = stateNeedsStart
 			a.configName = msg.configName
 			a.hub.configName = msg.configName
-			return a, tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+			return a, tea.Batch(tickCmd(), a.dashboard.Init())
 		}
 		// All good — ready to show the hub
 		a.startup = stateReady
@@ -192,7 +214,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hub.configName = msg.configName
 		a.serviceOn = true
 		a.hub.serviceOn = true
-		return a, tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+		return a, tea.Batch(tickCmd(), a.dashboard.Init())
 
 	case serviceStartMsg:
 		if msg.err != nil {
@@ -220,21 +242,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, cmd := a.curveEditor.Update(msg)
 		a.curveEditor = m
 		cmds = append(cmds, cmd)
+	case viewInstaller:
+		m, cmd := a.installer.Update(msg)
+		a.installer = m
+		cmds = append(cmds, cmd)
 	}
 
 	return a, tea.Batch(cmds...)
 }
 
 func (a App) View() string {
-	// Smart entry-point screens before showing normal hub UI
-	switch a.startup {
-	case stateChecking:
+	// Startup splash while detection runs
+	if a.startup == stateChecking {
 		return a.renderStartupChecking()
-	case stateNeedsInstall, stateNeedsConfig:
-		return a.renderStartupNeedsInstall()
 	}
 
-	// stateNeedsStart and stateReady both show the hub (with optional prompt)
+	// Route view rendering
 	var content string
 	switch a.activeViewID() {
 	case viewHub:
@@ -248,6 +271,8 @@ func (a App) View() string {
 		content = a.dashboard.View()
 	case viewCurveEditor:
 		content = a.curveEditor.View()
+	case viewInstaller:
+		content = a.installer.View()
 	case viewFanControl, viewProfiles, viewSensors, viewSettings:
 		content = a.renderPlaceholder()
 	}
@@ -275,7 +300,7 @@ func (a App) View() string {
 
 func (a App) isEditing() bool {
 	return (a.activeViewID() == viewCurveEditor && a.curveEditor.editing) ||
-		(a.activeViewID() == viewInstaller && a.setup.inputActive)
+		(a.activeViewID() == viewInstaller && a.installer.inputActive)
 }
 
 func (a *App) refreshStatus() {
@@ -388,23 +413,6 @@ func (a App) renderStartupChecking() string {
 	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", msg)
 
 	// Center on screen
-	centered := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, block)
-	return bgStyle.Width(a.width).Height(a.height).Render(centered)
-}
-
-// renderStartupNeedsInstall shows a stub screen when nbfc is not found or not configured.
-func (a App) renderStartupNeedsInstall() string {
-	brand := accentStyle.Copy().Bold(true).Render("freshMango")
-	var detail string
-	if a.startup == stateNeedsInstall {
-		detail = yellowStyle.Render("nbfc-linux not found")
-	} else {
-		detail = yellowStyle.Render("nbfc-linux installed but not configured")
-	}
-	note := dimStyle.Render("Installer coming in next commit.")
-	hint := dimStyle.Render("Press ctrl+c to exit.")
-	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", detail, "", note, "", hint)
-
 	centered := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, block)
 	return bgStyle.Width(a.width).Height(a.height).Render(centered)
 }
