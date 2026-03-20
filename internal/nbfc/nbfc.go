@@ -29,31 +29,31 @@ type Threshold struct {
 }
 
 type FanConfiguration struct {
-	ReadRegister              int         `json:"ReadRegister"`
-	WriteRegister             int         `json:"WriteRegister"`
-	MinSpeedValue             int         `json:"MinSpeedValue"`
-	MaxSpeedValue             int         `json:"MaxSpeedValue"`
-	IndependentReadMinMaxValues bool      `json:"IndependentReadMinMaxValues,omitempty"`
-	MinSpeedValueRead         int         `json:"MinSpeedValueRead,omitempty"`
-	MaxSpeedValueRead         int         `json:"MaxSpeedValueRead,omitempty"`
-	ResetRequired             bool        `json:"ResetRequired,omitempty"`
-	FanSpeedResetValue        int         `json:"FanSpeedResetValue,omitempty"`
-	FanDisplayName            string      `json:"FanDisplayName"`
-	Sensors                   []string    `json:"Sensors,omitempty"`
-	TemperatureAlgorithmType  string      `json:"TemperatureAlgorithmType,omitempty"`
-	TemperatureThresholds     []Threshold `json:"TemperatureThresholds"`
+	ReadRegister                int               `json:"ReadRegister"`
+	WriteRegister               int               `json:"WriteRegister"`
+	MinSpeedValue               int               `json:"MinSpeedValue"`
+	MaxSpeedValue               int               `json:"MaxSpeedValue"`
+	IndependentReadMinMaxValues bool              `json:"IndependentReadMinMaxValues"`
+	MinSpeedValueRead           int               `json:"MinSpeedValueRead"`
+	MaxSpeedValueRead           int               `json:"MaxSpeedValueRead"`
+	ResetRequired               bool              `json:"ResetRequired"`
+	FanSpeedResetValue          int               `json:"FanSpeedResetValue"`
+	FanDisplayName              string            `json:"FanDisplayName"`
+	Sensors                     []string          `json:"Sensors,omitempty"`
+	TemperatureAlgorithmType    string            `json:"TemperatureAlgorithmType,omitempty"`
+	TemperatureThresholds       []Threshold       `json:"TemperatureThresholds"`
 	FanSpeedPercentageOverrides []json.RawMessage `json:"FanSpeedPercentageOverrides,omitempty"`
 }
 
 type Config struct {
-	NotebookModel                      string             `json:"NotebookModel"`
-	Author                             string             `json:"Author,omitempty"`
-	EcPollInterval                     int                `json:"EcPollInterval,omitempty"`
-	ReadWriteWords                     bool               `json:"ReadWriteWords,omitempty"`
-	CriticalTemperature                float64            `json:"CriticalTemperature"`
-	LegacyTemperatureThresholdsBehaviour bool             `json:"LegacyTemperatureThresholdsBehaviour,omitempty"`
-	FanConfigurations                  []FanConfiguration `json:"FanConfigurations"`
-	RegisterWriteConfigurations        []json.RawMessage  `json:"RegisterWriteConfigurations,omitempty"`
+	NotebookModel                        string             `json:"NotebookModel"`
+	Author                               string             `json:"Author,omitempty"`
+	EcPollInterval                       int                `json:"EcPollInterval"`
+	ReadWriteWords                       bool               `json:"ReadWriteWords"`
+	CriticalTemperature                  float64            `json:"CriticalTemperature"`
+	LegacyTemperatureThresholdsBehaviour bool               `json:"LegacyTemperatureThresholdsBehaviour"`
+	FanConfigurations                    []FanConfiguration `json:"FanConfigurations"`
+	RegisterWriteConfigurations          []json.RawMessage  `json:"RegisterWriteConfigurations,omitempty"`
 }
 
 func IsInstalled() bool {
@@ -61,19 +61,26 @@ func IsInstalled() bool {
 	return err == nil
 }
 
+// runSilent executes a command, suppressing all output. On failure, the
+// captured stderr/stdout is included in the returned error.
+func runSilent(cmd *exec.Cmd) error {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w\n%s", cmd.Path, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func Install() error {
 	cmd := exec.Command("bash", "-c",
 		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && sudo dpkg -i nbfc-linux.deb; sudo apt install -f -y`)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(cmd)
 }
 
 func Status() ([]FanStatus, error) {
-	out, err := exec.Command("nbfc", "status").Output()
+	out, err := exec.Command("nbfc", "status").CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("nbfc status: %w", err)
+		return nil, fmt.Errorf("nbfc status: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return parseStatus(string(out))
 }
@@ -134,19 +141,11 @@ func parseStatus(raw string) ([]FanStatus, error) {
 }
 
 func Start() error {
-	cmd := exec.Command("sudo", "nbfc", "start")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(exec.Command("sudo", "nbfc", "start"))
 }
 
 func Stop() error {
-	cmd := exec.Command("sudo", "nbfc", "stop")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(exec.Command("sudo", "nbfc", "stop"))
 }
 
 func Restart() error {
@@ -157,9 +156,9 @@ func Restart() error {
 }
 
 func ListConfigs() ([]string, error) {
-	out, err := exec.Command("nbfc", "config", "-l").Output()
+	out, err := exec.Command("nbfc", "config", "-l").CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("nbfc config -l: %w", err)
+		return nil, fmt.Errorf("nbfc config -l: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	var configs []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -172,9 +171,9 @@ func ListConfigs() ([]string, error) {
 }
 
 func GetSelectedConfig() (string, error) {
-	out, err := exec.Command("nbfc", "status").Output()
+	out, err := exec.Command("nbfc", "status").CombinedOutput()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("nbfc status: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		parts := strings.SplitN(line, ":", 2)
@@ -186,11 +185,7 @@ func GetSelectedConfig() (string, error) {
 }
 
 func SetConfig(name string) error {
-	cmd := exec.Command("sudo", "nbfc", "config", "-s", name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(exec.Command("sudo", "nbfc", "config", "-s", name))
 }
 
 func ReadConfigFile(name string) (*Config, error) {
@@ -206,11 +201,122 @@ func ReadConfigFile(name string) (*Config, error) {
 	return &cfg, nil
 }
 
+// configPath returns the full path for a config file by name.
+func configPath(model string) string {
+	return filepath.Join(configDir, model+".json")
+}
+
+// backupPath returns the .bak path for a config file.
+func backupPath(model string) string {
+	return configPath(model) + ".bak"
+}
+
+// backupConfigFile copies the original config to a .bak file via sudo.
+// Returns nil if the original file does not exist (nothing to back up).
+func backupConfigFile(model string) error {
+	src := configPath(model)
+	dst := backupPath(model)
+
+	// Check if the source file exists before attempting backup.
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return nil // nothing to back up
+	}
+
+	return runSilent(exec.Command("sudo", "cp", src, dst))
+}
+
+// RestoreBackup copies the .bak file back over the config and restarts nbfc.
+func RestoreBackup(model string) error {
+	src := backupPath(model)
+	dst := configPath(model)
+
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return fmt.Errorf("no backup file found for %s", model)
+	}
+
+	if err := runSilent(exec.Command("sudo", "cp", src, dst)); err != nil {
+		return fmt.Errorf("restore backup: %w", err)
+	}
+	if err := Restart(); err != nil {
+		return fmt.Errorf("restart after restore: %w", err)
+	}
+	return nil
+}
+
+// SaveAndRestart wraps the full save flow with automatic rollback.
+// It writes the config (which creates a backup first), restarts nbfc,
+// and if the restart fails, restores the backup and restarts again.
+func SaveAndRestart(cfg *Config) error {
+	if err := WriteConfigFile(cfg); err != nil {
+		return err
+	}
+	if err := Restart(); err != nil {
+		// Restart failed — attempt to restore the backup.
+		src := backupPath(cfg.NotebookModel)
+		dst := configPath(cfg.NotebookModel)
+		if restoreErr := runSilent(exec.Command("sudo", "cp", src, dst)); restoreErr == nil {
+			_ = Restart()
+		}
+		return fmt.Errorf("config caused nbfc to fail. Original config restored")
+	}
+	return nil
+}
+
+// WriteConfigFile writes the config back to disk, preserving any unknown fields
+// from the original JSON file that our Go structs don't model. It reads the
+// original file as a generic map, overlays the fields we may have changed
+// (FanConfigurations with TemperatureThresholds), and writes the merged result.
+// A backup of the original file is created before writing.
 func WriteConfigFile(config *Config) error {
+	dest := configPath(config.NotebookModel)
+
+	// Back up the original config before overwriting.
+	if err := backupConfigFile(config.NotebookModel); err != nil {
+		return fmt.Errorf("backup before write: %w", err)
+	}
+
+	// Try to read the original file as a generic map to preserve unknown fields.
+	var original map[string]interface{}
+	if origData, err := os.ReadFile(dest); err == nil {
+		_ = json.Unmarshal(origData, &original)
+	}
+
+	if original != nil {
+		// Marshal our struct to a map so we can merge.
+		structData, err := json.Marshal(config)
+		if err != nil {
+			return err
+		}
+		var structMap map[string]interface{}
+		if err := json.Unmarshal(structData, &structMap); err != nil {
+			return err
+		}
+
+		// Overlay all fields from our struct onto the original map.
+		// This preserves any keys in the original that our struct doesn't have,
+		// while updating everything we do model.
+		for k, v := range structMap {
+			original[k] = v
+		}
+
+		data, err := json.MarshalIndent(original, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeViaSudo(data, dest)
+	}
+
+	// No original file — just marshal our struct directly.
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
+	return writeViaSudo(data, dest)
+}
+
+// writeViaSudo writes data to a destination path via a temp file + sudo cp,
+// capturing all output silently.
+func writeViaSudo(data []byte, dest string) error {
 	tmp, err := os.CreateTemp("", "nbfc-config-*.json")
 	if err != nil {
 		return err
@@ -223,10 +329,7 @@ func WriteConfigFile(config *Config) error {
 	}
 	tmp.Close()
 
-	dest := filepath.Join(configDir, config.NotebookModel+".json")
-	cmd := exec.Command("sudo", "cp", tmpPath, dest)
-	cmd.Stdin = os.Stdin
-	err = cmd.Run()
+	err = runSilent(exec.Command("sudo", "cp", tmpPath, dest))
 	os.Remove(tmpPath)
 	return err
 }
@@ -235,10 +338,7 @@ func WriteConfigFile(config *Config) error {
 func InstallDebian() error {
 	cmd := exec.Command("bash", "-c",
 		`cd /tmp && curl -L -o nbfc-linux.deb "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*amd64.deb' | head -1 | cut -d'"' -f4)" && sudo dpkg -i nbfc-linux.deb; sudo apt-get install -f -y`)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(cmd)
 }
 
 // InstallArch installs nbfc-linux on Arch-based distributions.
@@ -246,35 +346,24 @@ func InstallDebian() error {
 func InstallArch() error {
 	// Try yay first
 	if _, err := exec.LookPath("yay"); err == nil {
-		cmd := exec.Command("yay", "-S", "--noconfirm", "nbfc-linux")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-		return cmd.Run()
+		return runSilent(exec.Command("yay", "-S", "--noconfirm", "nbfc-linux"))
 	}
 
 	// Try paru
 	if _, err := exec.LookPath("paru"); err == nil {
-		cmd := exec.Command("paru", "-S", "--noconfirm", "nbfc-linux")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-		return cmd.Run()
+		return runSilent(exec.Command("paru", "-S", "--noconfirm", "nbfc-linux"))
 	}
 
 	// Fallback: download binary from GitHub releases
 	cmd := exec.Command("bash", "-c",
 		`cd /tmp && curl -L -o nbfc-linux.tar.gz "$(curl -s https://api.github.com/repos/nbfc-linux/nbfc-linux/releases/latest | grep 'browser_download_url.*x86_64.tar.gz' | head -1 | cut -d'"' -f4)" && sudo tar -xzf nbfc-linux.tar.gz -C /usr/local && sudo ln -sf /usr/local/bin/nbfc /usr/bin/nbfc`)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(cmd)
 }
 
 // RecommendConfigs runs `nbfc config -r` and parses the output as a list of config names.
 // Falls back to keyword matching if the command is not available.
 func RecommendConfigs(productName string) ([]string, error) {
-	out, err := exec.Command("nbfc", "config", "-r").Output()
+	out, err := exec.Command("nbfc", "config", "-r").CombinedOutput()
 	if err == nil {
 		var configs []string
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -456,19 +545,15 @@ func RateConfig(name string, productName string, fanCount int) int {
 }
 
 func ServiceEnabled() bool {
-	out, _ := exec.Command("systemctl", "is-enabled", "nbfc_service").Output()
+	out, _ := exec.Command("systemctl", "is-enabled", "nbfc_service").CombinedOutput()
 	return strings.TrimSpace(string(out)) == "enabled"
 }
 
 func ServiceRunning() bool {
-	out, _ := exec.Command("systemctl", "is-active", "nbfc_service").Output()
+	out, _ := exec.Command("systemctl", "is-active", "nbfc_service").CombinedOutput()
 	return strings.TrimSpace(string(out)) == "active"
 }
 
 func EnableService() error {
-	cmd := exec.Command("sudo", "bash", "-c", "systemctl enable nbfc_service && systemctl start nbfc_service")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return runSilent(exec.Command("sudo", "bash", "-c", "systemctl enable nbfc_service && systemctl start nbfc_service"))
 }
