@@ -127,7 +127,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Esc pops the view stack (unless editing, on hub, or in installer — installer handles its own Esc)
 		if msg.String() == "esc" && !a.isEditing() && a.activeViewID() != viewHub && a.activeViewID() != viewInstaller {
 			a.popView()
-			return a, nil
+			return a, tea.ClearScreen
 		}
 		// Enter on hub when service needs start → start the service
 		if msg.String() == "enter" && a.startup == stateNeedsStart && a.activeViewID() == viewHub {
@@ -137,6 +137,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case hubSelectMsg:
 		a.pushView(msg.id)
+		cmds = append(cmds, tea.ClearScreen)
 		// When entering curve editor, load config
 		if msg.id == viewCurveEditor {
 			cmds = append(cmds, a.curveEditor.loadConfig())
@@ -156,7 +157,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pushViewMsg:
 		a.pushView(msg.id)
-		return a, nil
+		return a, tea.ClearScreen
 
 	case popViewMsg:
 		wasInstaller := a.activeViewID() == viewInstaller
@@ -165,9 +166,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if wasInstaller {
 			a.startup = stateReady
 			a.refreshStatus()
-			return a, tea.Batch(tickCmd(), a.dashboard.Init())
+			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
 		}
-		return a, nil
+		return a, tea.ClearScreen
 
 	case tickMsg:
 		a.refreshStatus()
@@ -184,7 +185,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Detection failed — fall through to hub with a warning
 			a.startup = stateReady
 			a.statusMsg = fmt.Sprintf("Startup check error: %v", msg.err)
-			return a, tea.Batch(tickCmd(), a.dashboard.Init())
+			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
 		}
 		if !msg.installed {
 			a.startup = stateNeedsInstall
@@ -192,7 +193,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.installer.width = a.width
 			a.installer.height = a.height
 			a.pushView(viewInstaller)
-			return a, a.installer.Init()
+			return a, tea.Batch(tea.ClearScreen, a.installer.Init())
 		}
 		if !msg.configured {
 			a.startup = stateNeedsConfig
@@ -200,13 +201,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.installer.width = a.width
 			a.installer.height = a.height
 			a.pushView(viewInstaller)
-			return a, a.installer.Init()
+			return a, tea.Batch(tea.ClearScreen, a.installer.Init())
 		}
 		if !msg.running {
 			a.startup = stateNeedsStart
 			a.configName = msg.configName
 			a.hub.configName = msg.configName
-			return a, tea.Batch(tickCmd(), a.dashboard.Init())
+			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
 		}
 		// All good — ready to show the hub
 		a.startup = stateReady
@@ -214,7 +215,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hub.configName = msg.configName
 		a.serviceOn = true
 		a.hub.serviceOn = true
-		return a, tea.Batch(tickCmd(), a.dashboard.Init())
+		return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
 
 	case serviceStartMsg:
 		if msg.err != nil {
@@ -294,8 +295,8 @@ func (a App) View() string {
 	status := a.renderStatusBar()
 	output := lipgloss.JoinVertical(lipgloss.Left, nav, body, status)
 
-	// Apply root background fill
-	return bgStyle.Width(a.width).Height(a.height).Render(output)
+	// Pad every line to full terminal width to prevent old content from bleeding through
+	return padToTerminal(output, a.width, a.height)
 }
 
 func (a App) isEditing() bool {
@@ -353,12 +354,14 @@ func (a App) renderBreadcrumb() string {
 		}
 	}
 	crumb := strings.Join(parts, dimStyle.Render(" > "))
+	line := "  " + crumb
 
-	// Pad to full width
-	if bw := lipgloss.Width(crumb); a.width > bw {
-		crumb += tabStyle.Render(strings.Repeat(" ", a.width-bw))
+	// Pad to full terminal width
+	visW := lipgloss.Width(line)
+	if a.width > visW {
+		line += strings.Repeat(" ", a.width-visW)
 	}
-	return tabStyle.Render("  ") + crumb
+	return line
 }
 
 func (a App) renderStatusBar() string {
@@ -414,7 +417,28 @@ func (a App) renderStartupChecking() string {
 
 	// Center on screen
 	centered := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, block)
-	return bgStyle.Width(a.width).Height(a.height).Render(centered)
+	return padToTerminal(centered, a.width, a.height)
+}
+
+// padToTerminal pads every line of output with spaces to the given width,
+// and appends empty lines (also space-filled) to reach the given height.
+// This ensures every terminal cell is painted on each frame, preventing
+// ghost artifacts from previous views.
+func padToTerminal(output string, width, height int) string {
+	lines := strings.Split(output, "\n")
+	// Pad each existing line to full width
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w < width {
+			lines[i] = line + strings.Repeat(" ", width-w)
+		}
+	}
+	// Append blank lines to fill terminal height
+	blankLine := strings.Repeat(" ", width)
+	for len(lines) < height {
+		lines = append(lines, blankLine)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // startupCheckCmd runs async detection of nbfc state at launch.
