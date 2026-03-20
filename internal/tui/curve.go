@@ -29,6 +29,7 @@ type configLoadedMsg struct {
 }
 
 type configSavedMsg struct{ err error }
+type configRestoredMsg struct{ err error }
 
 func NewCurveEditor() CurveEditorModel {
 	return CurveEditorModel{}
@@ -59,9 +60,17 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 
 	case configSavedMsg:
 		if msg.err != nil {
-			c.statusMsg = "Save failed: " + msg.err.Error()
+			c.statusMsg = "⚠ " + msg.err.Error()
 		} else {
-			c.statusMsg = "Saved & restarting nbfc..."
+			c.statusMsg = "Saved & restarted nbfc"
+		}
+		return c, nil
+
+	case configRestoredMsg:
+		if msg.err != nil {
+			c.statusMsg = "Restore failed: " + msg.err.Error()
+		} else {
+			c.statusMsg = "Backup restored & restarted nbfc"
 		}
 		return c, nil
 
@@ -107,6 +116,8 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 			c.statusMsg = "Row deleted"
 		case "s":
 			return c, c.save()
+		case "b":
+			return c, c.restoreBackup()
 		case "r":
 			return c, c.loadConfig()
 		case "f":
@@ -233,13 +244,16 @@ func (c *CurveEditorModel) deleteRow() {
 
 func (c CurveEditorModel) save() tea.Cmd {
 	return func() tea.Msg {
-		if err := nbfc.WriteConfigFile(c.config); err != nil {
-			return configSavedMsg{err: err}
+		return configSavedMsg{err: nbfc.SaveAndRestart(c.config)}
+	}
+}
+
+func (c CurveEditorModel) restoreBackup() tea.Cmd {
+	return func() tea.Msg {
+		if c.config == nil {
+			return configRestoredMsg{err: fmt.Errorf("no config loaded")}
 		}
-		if err := nbfc.Restart(); err != nil {
-			return configSavedMsg{err: fmt.Errorf("restart: %w", err)}
-		}
-		return configSavedMsg{}
+		return configRestoredMsg{err: nbfc.RestoreBackup(c.config.NotebookModel)}
 	}
 }
 
@@ -265,7 +279,7 @@ func (c CurveEditorModel) View() string {
 
 	fanBar := c.renderFanSelector()
 
-	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  r: reload  f/1-9: fan")
+	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  b: restore backup  r: reload  f/1-9: fan")
 	status := ""
 	if c.statusMsg != "" {
 		status = accentStyle.Render(c.statusMsg)
@@ -352,7 +366,19 @@ func (c CurveEditorModel) renderTable() string {
 func (c CurveEditorModel) renderChart() string {
 	thresholds := c.thresholds()
 	rows := 12
-	cols := 35
+
+	// Calculate chart width dynamically based on terminal width
+	// Table is boxStyle.Width(40) = ~44 chars with borders, plus 3 chars gap
+	chartBoxWidth := c.width - 48
+	if chartBoxWidth < 40 {
+		chartBoxWidth = 40
+	}
+
+	// cols = chart box inner width minus y-axis labels and box borders
+	cols := chartBoxWidth - 12
+	if cols < 30 {
+		cols = 30
+	}
 
 	grid := make([][]bool, rows)
 	for i := range grid {
@@ -380,7 +406,7 @@ func (c CurveEditorModel) renderChart() string {
 	var sb strings.Builder
 	for i := 0; i < rows; i++ {
 		pct := 100 - (i * 100 / (rows - 1))
-		sb.WriteString(dimStyle.Render(fmt.Sprintf("%3d%%", pct)))
+		sb.WriteString(dimStyle.Render(fmt.Sprintf("%4d%%", pct)))
 		sb.WriteString(dimStyle.Render("│"))
 		for j := 0; j < cols; j++ {
 			if grid[i][j] {
@@ -391,9 +417,36 @@ func (c CurveEditorModel) renderChart() string {
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString(dimStyle.Render("    └" + strings.Repeat("─", cols)))
+	sb.WriteString(dimStyle.Render("     └" + strings.Repeat("─", cols)))
 	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("     0°C       25°       50°       75°      100°"))
 
-	return boxStyle.Render(titleStyle.Render("Fan Curve") + "\n" + sb.String())
+	// Build dynamic x-axis labels to match column count
+	labelLine := "      "
+	positions := []struct {
+		label string
+		col   int
+	}{
+		{"0°C", 0},
+		{"25°", cols / 4},
+		{"50°", cols / 2},
+		{"75°", cols * 3 / 4},
+		{"100°", cols - 1},
+	}
+	buf := make([]byte, cols)
+	for i := range buf {
+		buf[i] = ' '
+	}
+	for _, p := range positions {
+		pos := p.col
+		for i, ch := range p.label {
+			idx := pos + i
+			if idx >= 0 && idx < cols {
+				buf[idx] = byte(ch)
+			}
+		}
+	}
+	labelLine += string(buf)
+	sb.WriteString(dimStyle.Render(labelLine))
+
+	return boxStyle.Width(chartBoxWidth).Render(titleStyle.Render("Fan Curve") + "\n" + sb.String())
 }
