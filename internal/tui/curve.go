@@ -116,6 +116,14 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 				c.selectedRow = 0
 				c.statusMsg = fmt.Sprintf("Switched to %s", c.config.FanConfigurations[c.fanIdx].FanDisplayName)
 			}
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			num, _ := strconv.Atoi(msg.String())
+			idx := num - 1
+			if c.config != nil && idx < len(c.config.FanConfigurations) {
+				c.fanIdx = idx
+				c.selectedRow = 0
+				c.statusMsg = fmt.Sprintf("Switched to %s", c.config.FanConfigurations[c.fanIdx].FanDisplayName)
+			}
 		}
 	}
 	return c, nil
@@ -255,13 +263,32 @@ func (c CurveEditorModel) View() string {
 
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, table, "   ", chart)
 
-	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  r: reload  f: switch fan")
+	fanBar := c.renderFanSelector()
+
+	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  r: reload  f/1-9: fan")
 	status := ""
 	if c.statusMsg != "" {
 		status = accentStyle.Render(c.statusMsg)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", help, status)
+	return lipgloss.JoinVertical(lipgloss.Left, header, fanBar, cols, "", help, status)
+}
+
+func (c CurveEditorModel) renderFanSelector() string {
+	if c.config == nil || len(c.config.FanConfigurations) <= 1 {
+		return ""
+	}
+	activeFanStyle := accentStyle.Bold(true)
+	var parts []string
+	for i, fan := range c.config.FanConfigurations {
+		name := fan.FanDisplayName
+		if i == c.fanIdx {
+			parts = append(parts, activeFanStyle.Render("▸ "+name))
+		} else {
+			parts = append(parts, dimStyle.Render(name))
+		}
+	}
+	return strings.Join(parts, "    ")
 }
 
 func (c CurveEditorModel) renderTable() string {
