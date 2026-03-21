@@ -362,88 +362,16 @@ func (c CurveEditorModel) renderTable() string {
 }
 
 func (c CurveEditorModel) renderChart() string {
-	thresholds := c.thresholds()
-	rows := 12
-
-	// Calculate chart width dynamically based on terminal width
-	// Table is boxStyle.Width(40) = ~44 chars with borders, plus 3 chars gap
+	// Calculate chart width dynamically based on terminal width.
+	// Table is boxStyle.Width(40) = ~44 chars with borders, plus 3 chars gap.
 	chartBoxWidth := c.width - 48
 	if chartBoxWidth < 40 {
 		chartBoxWidth = 40
 	}
 
-	// cols = chart box inner width minus y-axis labels and box borders
-	cols := chartBoxWidth - 12
-	if cols < 30 {
-		cols = 30
-	}
-
-	grid := make([][]bool, rows)
-	for i := range grid {
-		grid[i] = make([]bool, cols)
-	}
-
-	// For each column (temperature), find the fan speed from the curve
-	for col := 0; col < cols; col++ {
-		temp := float64(col) / float64(cols-1) * 100.0
-		speed := 0.0
-		for _, t := range thresholds {
-			if temp >= t.UpThreshold {
-				speed = t.FanSpeed
-			}
-		}
-		filledRows := int(speed / 100.0 * float64(rows))
-		for r := rows - 1; r >= rows-filledRows; r-- {
-			if r >= 0 {
-				grid[r][col] = true
-			}
-		}
-	}
-
-	var sb strings.Builder
-	for i := 0; i < rows; i++ {
-		pct := 100 - (i * 100 / (rows - 1))
-		sb.WriteString(dimStyle.Render(fmt.Sprintf("%4d%%", pct)))
-		sb.WriteString(dimStyle.Render("│"))
-		for j := 0; j < cols; j++ {
-			if grid[i][j] {
-				sb.WriteString(accentStyle.Render("█"))
-			} else {
-				sb.WriteString(" ")
-			}
-		}
-		sb.WriteString("\n")
-	}
-	sb.WriteString(dimStyle.Render("     └" + strings.Repeat("─", cols)))
-	sb.WriteString("\n")
-
-	// Build dynamic x-axis labels to match column count
-	labelLine := "      "
-	positions := []struct {
-		label string
-		col   int
-	}{
-		{"0°C", 0},
-		{"25°C", cols / 4},
-		{"50°C", cols / 2},
-		{"75°C", cols * 3 / 4},
-		{"100°C", cols - 1},
-	}
-	buf := make([]rune, cols)
-	for i := range buf {
-		buf[i] = ' '
-	}
-	for _, p := range positions {
-		pos := p.col
-		for i, ch := range p.label {
-			idx := pos + i
-			if idx >= 0 && idx < cols {
-				buf[idx] = ch
-			}
-		}
-	}
-	labelLine += string(buf)
-	sb.WriteString(dimStyle.Render(labelLine))
-
-	return boxStyle.Width(chartBoxWidth).Render(titleStyle.Render("Fan Curve") + "\n" + sb.String())
+	return RenderCurveChart(c.thresholds(), ChartOptions{
+		Title:    "Fan Curve",
+		BoxWidth: chartBoxWidth,
+		Rows:     12,
+	})
 }

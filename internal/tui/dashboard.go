@@ -238,136 +238,24 @@ func (d DashboardModel) renderFanCurves() string {
 }
 
 func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc.FanStatus, perChartWidth, rows int) string {
-	thresholds := fc.TemperatureThresholds
-
-	// Title from fan display name
 	displayName := fc.FanDisplayName
 	if displayName == "" {
 		displayName = "Fan"
 	}
-	title := titleStyle.Render(displayName + " Curve")
 
-	// Column count: box border (2) + padding (2) + y-axis labels (6+2=8) = 12 chars overhead.
-	cols := perChartWidth - 12
-	if cols < 15 {
-		cols = 15
+	opts := ChartOptions{
+		Title:    displayName + " Curve",
+		BoxWidth: perChartWidth,
+		Rows:     rows,
 	}
-
-	grid := make([][]bool, rows)
-	for i := range grid {
-		grid[i] = make([]bool, cols)
-	}
-
-	// Each COLUMN is a temperature from 0°C to 100°C
-	for col := 0; col < cols; col++ {
-		temp := float64(col) / float64(cols-1) * 100.0
-		speed := 0.0
-		for _, t := range thresholds {
-			if temp >= t.UpThreshold {
-				speed = t.FanSpeed
-			}
-		}
-		// Fill from bottom up to the speed level
-		filledRows := int(speed / 100.0 * float64(rows))
-		for r := rows - 1; r >= rows-filledRows; r-- {
-			if r >= 0 {
-				grid[r][col] = true
-			}
+	if status != nil {
+		opts.Marker = &ChartMarker{
+			Temperature:  status.Temperature,
+			CurrentSpeed: status.CurrentSpeed,
 		}
 	}
 
-	markerCol := -1
-	markerRow := -1
-	currentSpeed := 0.0
-	if status != nil && status.Temperature > 0 {
-		markerCol = int(status.Temperature / 100.0 * float64(cols-1))
-		if markerCol < 0 {
-			markerCol = 0
-		}
-		if markerCol >= cols {
-			markerCol = cols - 1
-		}
-		currentSpeed = status.CurrentSpeed
-		markerRow = rows - 1 - int(currentSpeed/100.0*float64(rows-1))
-		if markerRow < 0 {
-			markerRow = 0
-		}
-		if markerRow >= rows {
-			markerRow = rows - 1
-		}
-	}
-
-	crosshairStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4A7C75"))
-	var sb strings.Builder
-	for i := 0; i < rows; i++ {
-		pct := 100 - (i * 100 / (rows - 1))
-		sb.WriteString(dimStyle.Render(fmt.Sprintf("%4d%%", pct)))
-		sb.WriteString(dimStyle.Render("│"))
-		for j := 0; j < cols; j++ {
-			isMarkerCol := j == markerCol && markerCol >= 0
-			isMarkerRow := i == markerRow && markerRow >= 0
-
-			if isMarkerCol && isMarkerRow {
-				sb.WriteString(crosshairStyle.Render("◆"))
-			} else if isMarkerCol {
-				if grid[i][j] {
-					sb.WriteString(crosshairStyle.Render("█"))
-				} else {
-					sb.WriteString(crosshairStyle.Render("┊"))
-				}
-			} else if isMarkerRow {
-				if grid[i][j] {
-					sb.WriteString(crosshairStyle.Render("█"))
-				} else {
-					sb.WriteString(crosshairStyle.Render("╌"))
-				}
-			} else if grid[i][j] {
-				sb.WriteString(accentStyle.Render("█"))
-			} else {
-				sb.WriteString(" ")
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// X-axis — 5 spaces to align with "%4d%%│" (5 visible chars + 1 border)
-	sb.WriteString(dimStyle.Render("     └" + strings.Repeat("─", cols)))
-	sb.WriteString("\n")
-
-	// Build dynamic x-axis labels to match column count
-	positions := []struct {
-		label string
-		col   int
-	}{
-		{"0°C", 0},
-		{"25°C", cols / 4},
-		{"50°C", cols / 2},
-		{"75°C", cols * 3 / 4},
-		{"100°C", cols - 1},
-	}
-	buf := make([]rune, cols)
-	for i := range buf {
-		buf[i] = ' '
-	}
-	for _, p := range positions {
-		pos := p.col
-		for i, ch := range p.label {
-			idx := pos + i
-			if idx >= 0 && idx < cols {
-				buf[idx] = ch
-			}
-		}
-	}
-	sb.WriteString(dimStyle.Render("      " + string(buf)))
-
-	if status != nil && status.Temperature > 0 {
-		sb.WriteString("\n")
-		sb.WriteString(crosshairStyle.Render(fmt.Sprintf("      ▲ %.0f°C @ %.0f%%", status.Temperature, currentSpeed)))
-	}
-
-	// Use cardWidth (perChartWidth - 4) so boxStyle's own border+padding
-	// produces the same outer width as the fan cards above.
-	return boxStyle.Width(perChartWidth - 4).Render(title + "\n" + sb.String())
+	return RenderCurveChart(fc.TemperatureThresholds, opts)
 }
 
 func renderBar(value, max float64, width int) string {
