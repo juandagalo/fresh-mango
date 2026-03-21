@@ -78,7 +78,7 @@ func (h HubModel) Update(msg tea.Msg) (HubModel, tea.Cmd) {
 func (h HubModel) View() string {
 	var sections []string
 
-	header := accentStyle.Bold(true).Render("freshMango")
+	header := RenderLogo()
 	sections = append(sections, header)
 	sections = append(sections, "")
 

@@ -414,7 +414,7 @@ func (a App) renderPlaceholder() string {
 }
 
 func (a App) renderStartupChecking() string {
-	brand := accentStyle.Bold(true).Render("freshMango")
+	brand := RenderLogo()
 	msg := dimStyle.Render("Checking system...")
 	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", msg)
 
