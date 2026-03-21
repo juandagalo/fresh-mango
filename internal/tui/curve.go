@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,7 @@ type configLoadedMsg struct {
 }
 
 type configSavedMsg struct{ err error }
+type configRestoredMsg struct{ err error }
 
 func NewCurveEditor() CurveEditorModel {
 	return CurveEditorModel{}
@@ -58,9 +60,17 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 
 	case configSavedMsg:
 		if msg.err != nil {
-			c.statusMsg = "Save failed: " + msg.err.Error()
+			c.statusMsg = "⚠ Save failed: " + msg.err.Error()
 		} else {
-			c.statusMsg = "Saved & restarting nbfc..."
+			c.statusMsg = "Saved & restarted nbfc"
+		}
+		return c, nil
+
+	case configRestoredMsg:
+		if msg.err != nil {
+			c.statusMsg = "Restore failed: " + msg.err.Error()
+		} else {
+			c.statusMsg = "Backup restored & restarted nbfc"
 		}
 		return c, nil
 
@@ -106,12 +116,21 @@ func (c CurveEditorModel) Update(msg tea.Msg) (CurveEditorModel, tea.Cmd) {
 			c.statusMsg = "Row deleted"
 		case "s":
 			return c, c.save()
+		case "b":
+			return c, c.restoreBackup()
 		case "r":
 			return c, c.loadConfig()
 		case "f":
-			// Switch between fans
 			if c.config != nil && len(c.config.FanConfigurations) > 1 {
 				c.fanIdx = (c.fanIdx + 1) % len(c.config.FanConfigurations)
+				c.selectedRow = 0
+				c.statusMsg = fmt.Sprintf("Switched to %s", c.config.FanConfigurations[c.fanIdx].FanDisplayName)
+			}
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			num, _ := strconv.Atoi(msg.String())
+			idx := num - 1
+			if c.config != nil && idx < len(c.config.FanConfigurations) {
+				c.fanIdx = idx
 				c.selectedRow = 0
 				c.statusMsg = fmt.Sprintf("Switched to %s", c.config.FanConfigurations[c.fanIdx].FanDisplayName)
 			}
@@ -130,7 +149,7 @@ func (c *CurveEditorModel) handleEditing(msg tea.KeyMsg) (CurveEditorModel, tea.
 		c.editing = false
 		c.editBuf = ""
 	case "backspace":
-		if len(c.editBuf) > 0 {
+		if c.editBuf != "" {
 			c.editBuf = c.editBuf[:len(c.editBuf)-1]
 		}
 	default:
@@ -180,13 +199,31 @@ func (c *CurveEditorModel) applyCellValue() {
 	case 2:
 		t.FanSpeed = val
 	}
+	c.sortThresholds()
+}
+
+func (c *CurveEditorModel) sortThresholds() {
+	fan := &c.config.FanConfigurations[c.fanIdx]
+	sort.Slice(fan.TemperatureThresholds, func(i, j int) bool {
+		return fan.TemperatureThresholds[i].UpThreshold < fan.TemperatureThresholds[j].UpThreshold
+	})
+	if c.selectedRow >= len(fan.TemperatureThresholds) {
+		c.selectedRow = len(fan.TemperatureThresholds) - 1
+	}
 }
 
 func (c *CurveEditorModel) addRow() {
 	fan := &c.config.FanConfigurations[c.fanIdx]
 	newT := nbfc.Threshold{UpThreshold: 75, DownThreshold: 70, FanSpeed: 50}
 	fan.TemperatureThresholds = append(fan.TemperatureThresholds, newT)
-	c.selectedRow = len(fan.TemperatureThresholds) - 1
+	c.sortThresholds()
+	// Select the newly added row (will be at its sorted position)
+	for i, t := range fan.TemperatureThresholds {
+		if t.UpThreshold == newT.UpThreshold && t.FanSpeed == newT.FanSpeed {
+			c.selectedRow = i
+			break
+		}
+	}
 }
 
 func (c *CurveEditorModel) deleteRow() {
@@ -206,13 +243,16 @@ func (c *CurveEditorModel) deleteRow() {
 
 func (c CurveEditorModel) save() tea.Cmd {
 	return func() tea.Msg {
-		if err := nbfc.WriteConfigFile(c.config); err != nil {
-			return configSavedMsg{err: err}
+		return configSavedMsg{err: nbfc.SaveAndRestart(c.config)}
+	}
+}
+
+func (c CurveEditorModel) restoreBackup() tea.Cmd {
+	return func() tea.Msg {
+		if c.config == nil {
+			return configRestoredMsg{err: fmt.Errorf("no config loaded")}
 		}
-		if err := nbfc.Restart(); err != nil {
-			return configSavedMsg{err: fmt.Errorf("restart: %w", err)}
-		}
-		return configSavedMsg{}
+		return configRestoredMsg{err: nbfc.RestoreBackup(c.config.NotebookModel)}
 	}
 }
 
@@ -236,28 +276,46 @@ func (c CurveEditorModel) View() string {
 
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, table, "   ", chart)
 
-	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  r: reload  f: switch fan")
+	fanBar := c.renderFanSelector()
+
+	help := dimStyle.Render("↑↓: navigate  ←→: columns  enter: edit  a: add  d: delete  s: save  b: restore backup  r: reload  f/1-9: fan")
 	status := ""
 	if c.statusMsg != "" {
-		status = cyanStyle.Render(c.statusMsg)
+		status = accentStyle.Render(c.statusMsg)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", help, status)
+	return lipgloss.JoinVertical(lipgloss.Left, header, fanBar, cols, "", help, status)
+}
+
+func (c CurveEditorModel) renderFanSelector() string {
+	if c.config == nil || len(c.config.FanConfigurations) <= 1 {
+		return ""
+	}
+	activeFanStyle := accentStyle.Bold(true)
+	var parts []string
+	for i, fan := range c.config.FanConfigurations {
+		name := fan.FanDisplayName
+		if i == c.fanIdx {
+			parts = append(parts, activeFanStyle.Render("▸ "+name))
+		} else {
+			parts = append(parts, dimStyle.Render(name))
+		}
+	}
+	return strings.Join(parts, "    ")
 }
 
 func (c CurveEditorModel) renderTable() string {
 	thresholds := c.thresholds()
-	headers := []string{"Up °C", "Down °C", "Fan %"}
-	colW := []int{8, 8, 8}
+	headers := []string{"Start °C", "Stop °C", "Speed %"}
+	colW := []int{10, 10, 10}
 
 	var sb strings.Builder
-	// Header
 	sb.WriteString(dimStyle.Render("  # "))
 	for i, h := range headers {
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("%-*s", colW[i], h)))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("  " + strings.Repeat("─", 28)))
+	sb.WriteString(dimStyle.Render("  " + strings.Repeat("─", 34)))
 	sb.WriteString("\n")
 
 	for i, t := range thresholds {
@@ -269,21 +327,22 @@ func (c CurveEditorModel) renderTable() string {
 		selected := i == c.selectedRow
 
 		if selected {
-			sb.WriteString(cyanStyle.Render(fmt.Sprintf("▸ %d ", i+1)))
+			sb.WriteString(accentStyle.Render(fmt.Sprintf("▸ %d ", i+1)))
 		} else {
 			sb.WriteString(dimStyle.Render(fmt.Sprintf("  %d ", i+1)))
 		}
 
 		for j, v := range vals {
 			cell := fmt.Sprintf("%-*s", colW[j], v)
-			if selected && j == c.selectedCol {
+			switch {
+			case selected && j == c.selectedCol:
 				if c.editing {
 					// Show edit buffer with cursor
 					display := c.editBuf + "▏"
 					cell = fmt.Sprintf("%-*s", colW[j], display)
 					sb.WriteString(lipgloss.NewStyle().
 						Background(colorActiveBg).
-						Foreground(colorCyan).
+						Foreground(colorAccent).
 						Render(cell))
 				} else {
 					sb.WriteString(lipgloss.NewStyle().
@@ -291,63 +350,29 @@ func (c CurveEditorModel) renderTable() string {
 						Foreground(colorText).
 						Render(cell))
 				}
-			} else if selected {
-				sb.WriteString(cyanStyle.Render(cell))
-			} else {
+			case selected:
+				sb.WriteString(accentStyle.Render(cell))
+			default:
 				sb.WriteString(valueStyle.Render(cell))
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	return boxStyle.Width(34).Render(sb.String())
+	return boxStyle.Width(40).Render(sb.String())
 }
 
 func (c CurveEditorModel) renderChart() string {
-	thresholds := c.thresholds()
-	rows := 12
-	cols := 35
-
-	grid := make([][]bool, rows)
-	for i := range grid {
-		grid[i] = make([]bool, cols)
+	// Calculate chart width dynamically based on terminal width.
+	// Table is boxStyle.Width(40) = ~44 chars with borders, plus 3 chars gap.
+	chartBoxWidth := c.width - 48
+	if chartBoxWidth < 40 {
+		chartBoxWidth = 40
 	}
 
-	// For each column (temperature), find the fan speed from the curve
-	for col := 0; col < cols; col++ {
-		temp := float64(col) / float64(cols-1) * 100.0
-		speed := 0.0
-		for _, t := range thresholds {
-			if temp >= t.UpThreshold {
-				speed = t.FanSpeed
-			}
-		}
-		// Fill from bottom up to speed level
-		filledRows := int(speed / 100.0 * float64(rows))
-		for r := rows - 1; r >= rows-filledRows; r-- {
-			if r >= 0 {
-				grid[r][col] = true
-			}
-		}
-	}
-
-	var sb strings.Builder
-	for i := 0; i < rows; i++ {
-		pct := 100 - (i * 100 / (rows - 1))
-		sb.WriteString(dimStyle.Render(fmt.Sprintf("%3d%%", pct)))
-		sb.WriteString(dimStyle.Render("│"))
-		for j := 0; j < cols; j++ {
-			if grid[i][j] {
-				sb.WriteString(cyanStyle.Render("█"))
-			} else {
-				sb.WriteString(" ")
-			}
-		}
-		sb.WriteString("\n")
-	}
-	sb.WriteString(dimStyle.Render("    └" + strings.Repeat("─", cols)))
-	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("     0°C       25°       50°       75°      100°"))
-
-	return boxStyle.Render(titleStyle.Render("Fan Curve") + "\n" + sb.String())
+	return RenderCurveChart(c.thresholds(), ChartOptions{
+		Title:    "Fan Curve",
+		BoxWidth: chartBoxWidth,
+		Rows:     12,
+	})
 }

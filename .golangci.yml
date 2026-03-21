@@ -1,0 +1,43 @@
+# golangci-lint configuration for freshMango
+# Docs: https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 3m
+  go: "1.24"
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - gocritic
+    - gofmt
+    - misspell
+  disable:
+    - exhaustive
+    - wrapcheck
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # noisy for TUI structs
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+    disabled-checks:
+      - hugeParam # TUI models are passed by value (Bubble Tea convention)
+  errcheck:
+    check-type-assertions: true
+  misspell:
+    locale: US
+
+issues:
+  exclude-dirs:
+    - vendor
+  max-issues-per-linter: 50
+  max-same-issues: 5

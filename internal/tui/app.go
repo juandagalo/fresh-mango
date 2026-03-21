@@ -10,38 +10,93 @@ import (
 	"github.com/mango/freshMango/internal/nbfc"
 )
 
-type view int
+type startupState int
 
 const (
-	viewDashboard view = iota
+	stateChecking     startupState = iota // initial: running checks
+	stateNeedsInstall                     // nbfc not found
+	stateNeedsConfig                      // nbfc installed but no config set
+	stateNeedsStart                       // configured but service stopped
+	stateReady                            // all good, show hub
+)
+
+// startupResultMsg carries the async detection results back to Update.
+type startupResultMsg struct {
+	installed  bool
+	configured bool   // has a config set
+	configName string // active config name
+	running    bool   // service is active
+	err        error
+}
+
+// serviceStartMsg carries the result of an async nbfc start attempt.
+type serviceStartMsg struct {
+	err error
+}
+
+// viewID identifies each navigable view in the hub-and-spoke model.
+type viewID int
+
+const (
+	viewHub viewID = iota
+	viewDashboard
 	viewCurveEditor
-	viewSetup
+	viewFanControl // placeholder for Phase 2
+	viewProfiles   // placeholder for Phase 3
+	viewSensors    // placeholder for Phase 3
+	viewSettings   // placeholder for Phase 3
+	viewInstaller  // for Commit 4
 )
 
 type tickMsg time.Time
 type configUpdatedMsg string
 
+// pushViewMsg pushes a new view onto the stack.
+type pushViewMsg struct{ id viewID }
+
+// popViewMsg pops the current view, returning to the previous one.
+type popViewMsg struct{}
+
 type App struct {
-	active        view
+	viewStack     []viewID
+	hub           HubModel
 	dashboard     DashboardModel
 	curveEditor   CurveEditorModel
-	setup         SetupModel
+	installer     InstallerModel
 	width, height int
 	configName    string
 	serviceOn     bool
+	startup       startupState
+	statusMsg     string // transient message shown in status bar (e.g. warnings)
 }
 
 func NewApp() App {
 	return App{
-		active:      viewDashboard,
+		viewStack:   []viewID{viewHub},
+		hub:         NewHub(),
 		dashboard:   NewDashboard(),
 		curveEditor: NewCurveEditor(),
-		setup:       NewSetup(),
+		installer:   NewInstaller(),
+		startup:     stateChecking,
 	}
 }
 
+func (a *App) pushView(v viewID) {
+	a.viewStack = append(a.viewStack, v)
+}
+
+func (a *App) popView() {
+	if len(a.viewStack) > 1 {
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+}
+
+func (a App) activeViewID() viewID {
+	return a.viewStack[len(a.viewStack)-1]
+}
+
 func (a App) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), a.dashboard.Init(), a.setup.Init())
+	return startupCheckCmd()
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -55,40 +110,135 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard.height = msg.Height
 		a.curveEditor.width = msg.Width
 		a.curveEditor.height = msg.Height
-		a.setup.width = msg.Width
-		a.setup.height = msg.Height
+		a.installer.width = msg.Width
+		a.installer.height = msg.Height
+		a.hub.width = msg.Width
+		a.hub.height = msg.Height
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return a, tea.Quit
 		}
-		if msg.String() == "q" && !a.isEditing() {
+		// q quits from hub only (or when not editing)
+		if msg.String() == "q" && !a.isEditing() && a.activeViewID() == viewHub {
 			return a, tea.Quit
 		}
-		if msg.String() == "tab" && !a.isEditing() {
-			a.active = (a.active + 1) % 3
-			if a.active == viewCurveEditor {
-				cmds = append(cmds, a.curveEditor.loadConfig())
-			}
-			return a, tea.Batch(cmds...)
+		// Esc pops the view stack (unless editing, on hub, or in installer — installer handles its own Esc)
+		if msg.String() == "esc" && !a.isEditing() && a.activeViewID() != viewHub && a.activeViewID() != viewInstaller {
+			a.popView()
+			return a, tea.ClearScreen
 		}
-		if msg.String() == "shift+tab" && !a.isEditing() {
-			a.active = (a.active + 2) % 3
-			if a.active == viewCurveEditor {
-				cmds = append(cmds, a.curveEditor.loadConfig())
-			}
-			return a, tea.Batch(cmds...)
+		// Enter on hub when service needs start → start the service
+		if msg.String() == "enter" && a.startup == stateNeedsStart && a.activeViewID() == viewHub {
+			a.statusMsg = "Starting service..."
+			return a, serviceStartCmd()
 		}
+
+	case hubSelectMsg:
+		a.pushView(msg.id)
+		cmds = append(cmds, tea.ClearScreen)
+		// When entering curve editor, load config
+		if msg.id == viewCurveEditor {
+			cmds = append(cmds, a.curveEditor.loadConfig())
+		}
+		// When entering dashboard, trigger init for fresh data
+		if msg.id == viewDashboard {
+			cmds = append(cmds, a.dashboard.Init())
+		}
+		// When entering installer from hub (e.g., Settings), initialize it
+		if msg.id == viewInstaller {
+			a.installer = NewInstallerAt(stepDetect)
+			a.installer.width = a.width
+			a.installer.height = a.height
+			cmds = append(cmds, a.installer.Init())
+		}
+		return a, tea.Batch(cmds...)
+
+	case pushViewMsg:
+		a.pushView(msg.id)
+		return a, tea.ClearScreen
+
+	case popViewMsg:
+		wasInstaller := a.activeViewID() == viewInstaller
+		if wasInstaller {
+			// Only allow popping from installer if the wizard completed
+			if a.installer.step != stepDone {
+				// Installer not complete — don't pop, keep user in wizard
+				return a, nil
+			}
+			a.popView()
+			a.startup = stateReady
+			a.refreshStatus()
+			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
+		}
+		a.popView()
+		return a, tea.ClearScreen
 
 	case tickMsg:
 		a.refreshStatus()
+		// Sync hub summary fields
+		a.hub.configName = a.configName
+		a.hub.serviceOn = a.serviceOn
 		cmds = append(cmds, tickCmd())
 
 	case configUpdatedMsg:
 		a.configName = string(msg)
+
+	case startupResultMsg:
+		if msg.err != nil {
+			// Detection failed — fall through to hub with a warning
+			a.startup = stateReady
+			a.statusMsg = fmt.Sprintf("Startup check error: %v", msg.err)
+			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
+		}
+		if !msg.installed {
+			a.startup = stateNeedsInstall
+			a.installer = NewInstallerAt(stepInstall)
+			a.installer.width = a.width
+			a.installer.height = a.height
+			a.pushView(viewInstaller)
+			return a, tea.Batch(tea.ClearScreen, a.installer.Init())
+		}
+		if !msg.configured {
+			a.startup = stateNeedsConfig
+			a.installer = NewInstallerAt(stepDetect)
+			a.installer.width = a.width
+			a.installer.height = a.height
+			a.pushView(viewInstaller)
+			return a, tea.Batch(tea.ClearScreen, a.installer.Init())
+		}
+		if !msg.running {
+			a.startup = stateNeedsStart
+			a.configName = msg.configName
+			a.hub.configName = msg.configName
+			return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
+		}
+		// All good — ready to show the hub
+		a.startup = stateReady
+		a.configName = msg.configName
+		a.hub.configName = msg.configName
+		a.serviceOn = true
+		a.hub.serviceOn = true
+		return a, tea.Batch(tea.ClearScreen, tickCmd(), a.dashboard.Init())
+
+	case serviceStartMsg:
+		if msg.err != nil {
+			a.statusMsg = fmt.Sprintf("Failed to start service: %v", msg.err)
+		} else {
+			a.startup = stateReady
+			a.serviceOn = true
+			a.hub.serviceOn = true
+			a.statusMsg = ""
+		}
+		return a, nil
 	}
 
-	switch a.active {
+	// Route messages to the active view
+	switch a.activeViewID() {
+	case viewHub:
+		m, cmd := a.hub.Update(msg)
+		a.hub = m
+		cmds = append(cmds, cmd)
 	case viewDashboard:
 		m, cmd := a.dashboard.Update(msg)
 		a.dashboard = m
@@ -97,9 +247,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, cmd := a.curveEditor.Update(msg)
 		a.curveEditor = m
 		cmds = append(cmds, cmd)
-	case viewSetup:
-		m, cmd := a.setup.Update(msg)
-		a.setup = m
+	case viewInstaller:
+		m, cmd := a.installer.Update(msg)
+		a.installer = m
 		cmds = append(cmds, cmd)
 	}
 
@@ -107,19 +257,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
-	tabs := a.renderTabBar()
+	if a.startup == stateChecking {
+		return a.renderStartupChecking()
+	}
 
 	var content string
-	switch a.active {
+	switch a.activeViewID() {
+	case viewHub:
+		content = a.hub.View()
+		// Overlay a service-start prompt when needed
+		if a.startup == stateNeedsStart {
+			prompt := accentStyle.Bold(true).Render("Service stopped. Press Enter to start.")
+			content = lipgloss.JoinVertical(lipgloss.Left, prompt, "", content)
+		}
 	case viewDashboard:
 		content = a.dashboard.View()
 	case viewCurveEditor:
 		content = a.curveEditor.View()
-	case viewSetup:
-		content = a.setup.View()
+	case viewInstaller:
+		content = a.installer.View()
+	case viewFanControl, viewProfiles, viewSensors, viewSettings:
+		content = a.renderPlaceholder()
 	}
 
-	// Leave room for tab bar (1) + status bar (1) + padding (2)
+	// Breadcrumb navigation bar
+	nav := a.renderBreadcrumb()
+
+	// Leave room for breadcrumb (1) + status bar (1) + padding (2)
 	availH := a.height - 4
 	if availH < 5 {
 		availH = 5
@@ -131,12 +295,15 @@ func (a App) View() string {
 		Render(content)
 
 	status := a.renderStatusBar()
-	return lipgloss.JoinVertical(lipgloss.Left, tabs, body, status)
+	output := lipgloss.JoinVertical(lipgloss.Left, nav, body, status)
+
+	// Pad every line to full terminal width to prevent old content from bleeding through
+	return padToTerminal(output, a.width, a.height)
 }
 
 func (a App) isEditing() bool {
-	return (a.active == viewCurveEditor && a.curveEditor.editing) ||
-		(a.active == viewSetup && a.setup.inputActive)
+	return (a.activeViewID() == viewCurveEditor && a.curveEditor.editing) ||
+		(a.activeViewID() == viewInstaller && a.installer.inputActive)
 }
 
 func (a *App) refreshStatus() {
@@ -144,23 +311,61 @@ func (a *App) refreshStatus() {
 		a.configName = cfg
 	}
 	a.serviceOn = nbfc.ServiceRunning()
+
+	// Update hub temperature and fan speed data, and share with dashboard
+	if fans, err := nbfc.Status(); err == nil && len(fans) > 0 {
+		a.hub.cpuTemp = fans[0].Temperature
+		speeds := make([]float64, len(fans))
+		for i, f := range fans {
+			speeds[i] = f.CurrentSpeed
+		}
+		a.hub.fanSpeeds = speeds
+		a.dashboard.fans = fans
+		a.dashboard.err = nil
+	}
 }
 
-func (a App) renderTabBar() string {
-	labels := []string{"Dashboard", "Curve Editor", "Setup"}
+func (a App) viewName(v viewID) string {
+	switch v {
+	case viewHub:
+		return "Hub"
+	case viewDashboard:
+		return "Dashboard"
+	case viewCurveEditor:
+		return "Curve Editor"
+	case viewFanControl:
+		return "Fan Control"
+	case viewProfiles:
+		return "Profiles"
+	case viewSensors:
+		return "Sensors"
+	case viewSettings:
+		return "Settings"
+	case viewInstaller:
+		return "Installer"
+	}
+	return "Unknown"
+}
+
+func (a App) renderBreadcrumb() string {
 	var parts []string
-	for i, l := range labels {
-		if view(i) == a.active {
-			parts = append(parts, activeTabStyle.Render(" "+l+" "))
+	for i, v := range a.viewStack {
+		name := a.viewName(v)
+		if i == len(a.viewStack)-1 {
+			parts = append(parts, accentStyle.Bold(true).Render(name))
 		} else {
-			parts = append(parts, tabStyle.Render(" "+l+" "))
+			parts = append(parts, labelStyle.Render(name))
 		}
 	}
-	bar := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
-	if bw := lipgloss.Width(bar); a.width > bw {
-		bar += tabStyle.Render(strings.Repeat(" ", a.width-bw))
+	crumb := strings.Join(parts, dimStyle.Render(" > "))
+	line := "  " + crumb
+
+	// Pad to full terminal width
+	visW := lipgloss.Width(line)
+	if a.width > visW {
+		line += strings.Repeat(" ", a.width-visW)
 	}
-	return bar
+	return line
 }
 
 func (a App) renderStatusBar() string {
@@ -173,12 +378,104 @@ func (a App) renderStatusBar() string {
 		svc = greenStyle.Render("running")
 	}
 	left := fmt.Sprintf("  Config: %s  |  Service: %s", cfg, svc)
-	right := "  Tab: switch  q: quit  "
+
+	// Show transient status message (e.g. warnings from startup detection)
+	if a.statusMsg != "" {
+		left += dimStyle.Render("  |  ") + yellowStyle.Render(a.statusMsg)
+	}
+
+	// Navigation hints based on current view
+	var right string
+	switch a.activeViewID() {
+	case viewHub:
+		if a.startup == stateNeedsStart {
+			right = "  Enter: start service  1-6: select  q: quit  "
+		} else {
+			right = "  1-6: select  q: quit  "
+		}
+	default:
+		right = "  Esc: back  q: quit (from hub)  "
+	}
+
 	gap := ""
 	if lw, rw := lipgloss.Width(left), lipgloss.Width(right); a.width > lw+rw {
 		gap = strings.Repeat(" ", a.width-lw-rw)
 	}
 	return statusBarStyle.Width(a.width).Render(left + gap + right)
+}
+
+func (a App) renderPlaceholder() string {
+	name := a.viewName(a.activeViewID())
+	title := titleStyle.Render(name)
+	msg := accentStyle.Render("Coming soon")
+	hint := dimStyle.Render("This feature is planned for a future release.")
+	back := dimStyle.Render("Press Esc to return to the hub.")
+	return lipgloss.JoinVertical(lipgloss.Left, title, "", msg, "", hint, "", back)
+}
+
+func (a App) renderStartupChecking() string {
+	brand := accentStyle.Bold(true).Render("freshMango")
+	msg := dimStyle.Render("Checking system...")
+	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", msg)
+
+	// Center on screen
+	centered := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, block)
+	return padToTerminal(centered, a.width, a.height)
+}
+
+// padToTerminal pads every line of output with spaces to the given width,
+// and appends empty lines (also space-filled) to reach the given height.
+// This ensures every terminal cell is painted on each frame, preventing
+// ghost artifacts from previous views.
+func padToTerminal(output string, width, height int) string {
+	lines := strings.Split(output, "\n")
+	// Pad each existing line to full width
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w < width {
+			lines[i] = line + strings.Repeat(" ", width-w)
+		}
+	}
+	// Append blank lines to fill terminal height
+	blankLine := strings.Repeat(" ", width)
+	for len(lines) < height {
+		lines = append(lines, blankLine)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func startupCheckCmd() tea.Cmd {
+	return func() tea.Msg {
+		result := startupResultMsg{}
+
+		result.installed = nbfc.IsInstalled()
+		if !result.installed {
+			return result
+		}
+
+		cfg, err := nbfc.GetSelectedConfig()
+		if err != nil {
+			result.err = err
+			return result
+		}
+		if cfg != "" {
+			result.configured = true
+			result.configName = cfg
+		} else {
+			return result
+		}
+
+		result.running = nbfc.ServiceRunning()
+
+		return result
+	}
+}
+
+func serviceStartCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := nbfc.Start()
+		return serviceStartMsg{err: err}
+	}
 }
 
 func tickCmd() tea.Cmd {
