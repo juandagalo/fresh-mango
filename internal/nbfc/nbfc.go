@@ -10,7 +10,14 @@ import (
 	"strings"
 )
 
-const configDir = "/usr/share/nbfc/configs"
+var configDir = "/usr/share/nbfc/configs"
+
+// backupFn and writeFn are overridable for testing. In production they use
+// sudo-based operations; tests replace them with simple file copies/writes.
+var (
+	backupFn = backupConfigFileSudo
+	writeFn  = writeViaSudo
+)
 
 type FanStatus struct {
 	Name         string
@@ -224,9 +231,9 @@ func backupPath(model string) string {
 	return configPath(model) + ".bak"
 }
 
-// backupConfigFile copies the original config to a .bak file via sudo.
+// backupConfigFileSudo copies the original config to a .bak file via sudo.
 // Returns nil if the original file does not exist (nothing to back up).
-func backupConfigFile(model string) error {
+func backupConfigFileSudo(model string) error {
 	src := configPath(model)
 	dst := backupPath(model)
 
@@ -235,6 +242,11 @@ func backupConfigFile(model string) error {
 	}
 
 	return runSudo("cp", src, dst)
+}
+
+// backupConfigFile delegates to backupFn (overridable for testing).
+func backupConfigFile(model string) error {
+	return backupFn(model)
 }
 
 // RestoreBackup copies the .bak file back over the config and restarts nbfc.
@@ -328,7 +340,7 @@ func WriteConfigFile(config *Config) error {
 		if err != nil {
 			return err
 		}
-		return writeViaSudo(data, dest)
+		return writeFn(data, dest)
 	}
 
 	// No original file — just marshal our struct directly.
@@ -336,7 +348,7 @@ func WriteConfigFile(config *Config) error {
 	if err != nil {
 		return err
 	}
-	return writeViaSudo(data, dest)
+	return writeFn(data, dest)
 }
 
 // writeViaSudo writes data to a destination path via a temp file + sudo cp,

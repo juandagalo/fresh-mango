@@ -8,14 +8,14 @@ import (
 )
 
 type Info struct {
-	ProductName string
-	Distro      string
-	DistroID    string // raw ID from /etc/os-release: "ubuntu", "arch", "debian", etc.
+	ProductName  string
+	Distro       string
+	DistroID     string // raw ID from /etc/os-release: "ubuntu", "arch", "debian", etc.
 	DistroIDLike string // ID_LIKE fallback from /etc/os-release
-	Kernel      string
-	CPUModel    string
-	CPUCores    int
-	CPUThreads  int
+	Kernel       string
+	CPUModel     string
+	CPUCores     int
+	CPUThreads   int
 }
 
 // DistroFamily returns a normalized distribution family string based on
@@ -56,17 +56,7 @@ func Detect() (*Info, error) {
 	}
 
 	if data, err := os.ReadFile("/etc/os-release"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "PRETTY_NAME=") {
-				info.Distro = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
-			}
-			if strings.HasPrefix(line, "ID=") {
-				info.DistroID = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
-			}
-			if strings.HasPrefix(line, "ID_LIKE=") {
-				info.DistroIDLike = strings.Trim(strings.TrimPrefix(line, "ID_LIKE="), "\"")
-			}
-		}
+		parseOsRelease(string(data), info)
 	}
 
 	if out, err := exec.Command("uname", "-r").Output(); err == nil {
@@ -74,25 +64,47 @@ func Detect() (*Info, error) {
 	}
 
 	if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
-		cores := make(map[string]bool)
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "model name") {
-				parts := strings.SplitN(line, ":", 2)
-				if len(parts) == 2 && info.CPUModel == "" {
-					info.CPUModel = strings.TrimSpace(parts[1])
-				}
-			}
-			if strings.HasPrefix(line, "core id") {
-				cores[strings.TrimSpace(line)] = true
-			}
-		}
-		info.CPUCores = len(cores)
-		if info.CPUCores == 0 {
-			info.CPUCores = info.CPUThreads
-		}
+		parseCPUInfo(string(data), info)
 	}
 
 	return info, nil
+}
+
+// parseOsRelease parses the content of /etc/os-release and populates the
+// Distro, DistroID, and DistroIDLike fields of the given Info struct.
+func parseOsRelease(data string, info *Info) {
+	for _, line := range strings.Split(data, "\n") {
+		if strings.HasPrefix(line, "PRETTY_NAME=") {
+			info.Distro = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+		}
+		if strings.HasPrefix(line, "ID=") {
+			info.DistroID = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+		}
+		if strings.HasPrefix(line, "ID_LIKE=") {
+			info.DistroIDLike = strings.Trim(strings.TrimPrefix(line, "ID_LIKE="), "\"")
+		}
+	}
+}
+
+// parseCPUInfo parses the content of /proc/cpuinfo and populates the
+// CPUModel and CPUCores fields of the given Info struct.
+func parseCPUInfo(data string, info *Info) {
+	cores := make(map[string]bool)
+	for _, line := range strings.Split(data, "\n") {
+		if strings.HasPrefix(line, "model name") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 && info.CPUModel == "" {
+				info.CPUModel = strings.TrimSpace(parts[1])
+			}
+		}
+		if strings.HasPrefix(line, "core id") {
+			cores[strings.TrimSpace(line)] = true
+		}
+	}
+	info.CPUCores = len(cores)
+	if info.CPUCores == 0 {
+		info.CPUCores = info.CPUThreads
+	}
 }
 
 func FindMatchingConfigs(productName string, configs []string) []string {

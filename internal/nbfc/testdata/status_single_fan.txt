@@ -1,0 +1,11 @@
+Service enabled          : True
+Read-only                : False
+Selected Config Name     : Lenovo IdeaPad 5 15ARE05
+
+Fan Display Name         : CPU Fan
+Temperature              : 52.00
+Current Fan Speed        : 35.12
+Target Fan Speed         : 35.00
+Auto Control Enabled     : true
+Critical Mode Enabled    : false
+Fan Speed Steps          : 7

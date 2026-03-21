@@ -1,0 +1,19 @@
+Service enabled          : True
+Read-only                : False
+Selected Config Name     : ASUS ROG Zephyrus G14
+
+Fan Display Name         : CPU Fan
+Temperature              : 67.50
+Current Fan Speed        : 58.30
+Target Fan Speed         : 60.00
+Auto Control Enabled     : true
+Critical Mode Enabled    : false
+Fan Speed Steps          : 10
+
+Fan Display Name         : GPU Fan
+Temperature              : 72.00
+Current Fan Speed        : 75.00
+Target Fan Speed         : 75.00
+Auto Control Enabled     : true
+Critical Mode Enabled    : false
+Fan Speed Steps          : 8
