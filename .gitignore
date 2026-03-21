@@ -1,6 +1,9 @@
 # Binary
 freshMango
 
+# Test / Coverage
+coverage.out
+
 # IDE
 .idea/
 .vscode/
