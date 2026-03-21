@@ -10,7 +10,11 @@ import (
 // helper: create a fresh App and extract the model after an Update call.
 func updateApp(a App, msg tea.Msg) App {
 	m, _ := a.Update(msg)
-	return m.(App)
+	result, ok := m.(App)
+	if !ok {
+		panic("Update did not return an App")
+	}
+	return result
 }
 
 // ---------------------------------------------------------------------------

@@ -359,7 +359,7 @@ func writeViaSudo(data []byte, dest string) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
+	if _, err = tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
 		return err
@@ -518,7 +518,7 @@ func ShowSensors() (string, error) {
 // +25: FanConfigurations count matches detected fan count
 // +25: TemperatureThresholds cover range 40-90 with >=4 steps
 // +20: CriticalTemperature is set and <= 100
-func RateConfig(name string, productName string, fanCount int) int {
+func RateConfig(name, productName string, fanCount int) int {
 	cfg, err := ReadConfigFile(name)
 	if err != nil {
 		return 0
@@ -556,25 +556,26 @@ func RateConfig(name string, productName string, fanCount int) int {
 
 	// Threshold coverage (+25)
 	for _, fan := range cfg.FanConfigurations {
-		if len(fan.TemperatureThresholds) >= 4 {
-			// Check if thresholds span a reasonable range (40-90)
-			minT := 200.0
-			maxT := 0.0
-			for _, t := range fan.TemperatureThresholds {
-				if t.UpThreshold < minT {
-					minT = t.UpThreshold
-				}
-				if t.UpThreshold > maxT {
-					maxT = t.UpThreshold
-				}
-			}
-			if minT <= 50 && maxT >= 80 {
-				score += 25
-			} else {
-				score += 15
-			}
-			break // only check first fan
+		if len(fan.TemperatureThresholds) < 4 {
+			continue
 		}
+		// Check if thresholds span a reasonable range (40-90)
+		minT := 200.0
+		maxT := 0.0
+		for _, t := range fan.TemperatureThresholds {
+			if t.UpThreshold < minT {
+				minT = t.UpThreshold
+			}
+			if t.UpThreshold > maxT {
+				maxT = t.UpThreshold
+			}
+		}
+		if minT <= 50 && maxT >= 80 {
+			score += 25
+		} else {
+			score += 15
+		}
+		break // only check first fan
 	}
 
 	// Critical temperature (+20)

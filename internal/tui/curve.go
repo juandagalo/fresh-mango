@@ -149,7 +149,7 @@ func (c *CurveEditorModel) handleEditing(msg tea.KeyMsg) (CurveEditorModel, tea.
 		c.editing = false
 		c.editBuf = ""
 	case "backspace":
-		if len(c.editBuf) > 0 {
+		if c.editBuf != "" {
 			c.editBuf = c.editBuf[:len(c.editBuf)-1]
 		}
 	default:
@@ -334,7 +334,8 @@ func (c CurveEditorModel) renderTable() string {
 
 		for j, v := range vals {
 			cell := fmt.Sprintf("%-*s", colW[j], v)
-			if selected && j == c.selectedCol {
+			switch {
+			case selected && j == c.selectedCol:
 				if c.editing {
 					// Show edit buffer with cursor
 					display := c.editBuf + "▏"
@@ -349,9 +350,9 @@ func (c CurveEditorModel) renderTable() string {
 						Foreground(colorText).
 						Render(cell))
 				}
-			} else if selected {
+			case selected:
 				sb.WriteString(accentStyle.Render(cell))
-			} else {
+			default:
 				sb.WriteString(valueStyle.Render(cell))
 			}
 		}

@@ -15,38 +15,38 @@ type installerStep int
 
 const (
 	stepInstall   installerStep = iota // Download & install nbfc
-	stepDetect                          // Auto-detect system & find configs
-	stepConfigure                       // Pick config (with safety scores)
-	stepSensors                         // Verify/configure sensor assignments
-	stepStart                           // Start the service
-	stepEnable                          // Enable on boot
-	stepDone                            // Completion
+	stepDetect                         // Auto-detect system & find configs
+	stepConfigure                      // Pick config (with safety scores)
+	stepSensors                        // Verify/configure sensor assignments
+	stepStart                          // Start the service
+	stepEnable                         // Enable on boot
+	stepDone                           // Completion
 )
 
 // InstallerModel is a Bubble Tea model for the distro-aware installer wizard.
 type InstallerModel struct {
-	step         installerStep
-	startStep    installerStep // step to start from (allows skipping install if already present)
-	sysInfo      *system.Info
-	distroFamily string
-	installed    bool
-	allConfigs   []string
-	matchConfigs []string
-	configScores map[string]int // config name -> 0-100 score
-	selectedCfg  int
-	showAll      bool
-	configSet    bool
-	started      bool
-	enabled      bool
-	inputActive  bool
-	sensors      []nbfc.SensorInfo
-	sensorInfo   string // formatted sensor assignment output
-	sensorStatus string // "checking" | "ok" | "unavailable" | "error"
-	aurHelper    string // cached AUR helper detection result (set once on entering stepInstall)
-	aurDetected  bool   // whether AUR helper detection has been done
+	step          installerStep
+	startStep     installerStep // step to start from (allows skipping install if already present)
+	sysInfo       *system.Info
+	distroFamily  string
+	installed     bool
+	allConfigs    []string
+	matchConfigs  []string
+	configScores  map[string]int // config name -> 0-100 score
+	selectedCfg   int
+	showAll       bool
+	configSet     bool
+	started       bool
+	enabled       bool
+	inputActive   bool
+	sensors       []nbfc.SensorInfo
+	sensorInfo    string // formatted sensor assignment output
+	sensorStatus  string // "checking" | "ok" | "unavailable" | "error"
+	aurHelper     string // cached AUR helper detection result (set once on entering stepInstall)
+	aurDetected   bool   // whether AUR helper detection has been done
 	width, height int
-	statusMsg    string
-	err          error
+	statusMsg     string
+	err           error
 }
 
 // Messages for async installer operations
@@ -270,8 +270,7 @@ func (m InstallerModel) handleKey(msg tea.KeyMsg) (InstallerModel, tea.Cmd) {
 		}
 
 	case stepSensors:
-		switch msg.String() {
-		case "enter":
+		if msg.String() == "enter" {
 			if m.sensorStatus == "checking" {
 				m.statusMsg = "Waiting for sensor check..."
 				return m, nil
@@ -461,11 +460,12 @@ func (m InstallerModel) renderStepIndicator() string {
 	var parts []string
 	for _, s := range steps {
 		label := s.name
-		if s.step < m.step {
+		switch {
+		case s.step < m.step:
 			parts = append(parts, greenStyle.Render("✓ "+label))
-		} else if s.step == m.step {
-			parts = append(parts, accentStyle.Copy().Bold(true).Render("▸ "+label))
-		} else {
+		case s.step == m.step:
+			parts = append(parts, accentStyle.Bold(true).Render("▸ "+label))
+		default:
 			parts = append(parts, dimStyle.Render("○ "+label))
 		}
 	}
@@ -519,7 +519,7 @@ func (m InstallerModel) renderInstallStep() string {
 			helper = "GitHub binary"
 		}
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("Will install via AUR helper or %s.\n", helper)))
-	default:
+	default: //nolint:gocritic // intentional fallthrough for unsupported distros
 		sb.WriteString(redStyle.Render("Unsupported distribution detected.\n\n"))
 		sb.WriteString(dimStyle.Render("Please install nbfc-linux manually:\n"))
 		sb.WriteString(accentStyle.Render("  https://github.com/nbfc-linux/nbfc-linux/releases\n\n"))
@@ -543,13 +543,14 @@ func (m InstallerModel) renderConfigPicker() string {
 	}
 
 	configs := m.visibleConfigs()
-	if m.showAll {
+	switch {
+	case m.showAll:
 		sb.WriteString(titleStyle.Render("All Configs"))
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("  (%d total, Tab for recommended)", len(configs))))
-	} else if len(m.matchConfigs) > 0 {
+	case len(m.matchConfigs) > 0:
 		sb.WriteString(titleStyle.Render("Recommended Configs"))
 		sb.WriteString(dimStyle.Render("  (Tab for all)"))
-	} else {
+	default:
 		sb.WriteString(titleStyle.Render("All Configs"))
 		sb.WriteString(dimStyle.Render("  (no matches found for your model)"))
 	}
@@ -574,9 +575,10 @@ func (m InstallerModel) renderConfigPicker() string {
 		scoreStr := ""
 		if score, ok := m.configScores[name]; ok && score > 0 {
 			scoreStyle := dimStyle
-			if score >= 70 {
+			switch {
+			case score >= 70:
 				scoreStyle = greenStyle
-			} else if score >= 40 {
+			case score >= 40:
 				scoreStyle = yellowStyle
 			}
 			scoreStr = scoreStyle.Render(fmt.Sprintf(" [%d%%]", score))
@@ -686,7 +688,7 @@ func (m InstallerModel) renderDoneStep() string {
 func (m InstallerModel) renderHelp() string {
 	isFirstStep := m.step <= m.startStep
 
-	switch m.step {
+	switch m.step { //nolint:exhaustive // stepDone has its own return
 	case stepInstall:
 		if m.distroFamily == "unknown" || m.distroFamily == "" {
 			help := "r: re-check"

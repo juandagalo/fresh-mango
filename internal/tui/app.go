@@ -13,7 +13,7 @@ import (
 type startupState int
 
 const (
-	stateChecking    startupState = iota // initial: running checks
+	stateChecking     startupState = iota // initial: running checks
 	stateNeedsInstall                     // nbfc not found
 	stateNeedsConfig                      // nbfc installed but no config set
 	stateNeedsStart                       // configured but service stopped
@@ -38,14 +38,14 @@ type serviceStartMsg struct {
 type viewID int
 
 const (
-	viewHub         viewID = iota
+	viewHub viewID = iota
 	viewDashboard
 	viewCurveEditor
-	viewFanControl  // placeholder for Phase 2
-	viewProfiles    // placeholder for Phase 3
-	viewSensors     // placeholder for Phase 3
-	viewSettings    // placeholder for Phase 3
-	viewInstaller   // for Commit 4
+	viewFanControl // placeholder for Phase 2
+	viewProfiles   // placeholder for Phase 3
+	viewSensors    // placeholder for Phase 3
+	viewSettings   // placeholder for Phase 3
+	viewInstaller  // for Commit 4
 )
 
 type tickMsg time.Time
@@ -58,11 +58,11 @@ type pushViewMsg struct{ id viewID }
 type popViewMsg struct{}
 
 type App struct {
-	viewStack   []viewID
-	hub         HubModel
-	dashboard   DashboardModel
-	curveEditor CurveEditorModel
-	installer   InstallerModel
+	viewStack     []viewID
+	hub           HubModel
+	dashboard     DashboardModel
+	curveEditor   CurveEditorModel
+	installer     InstallerModel
 	width, height int
 	configName    string
 	serviceOn     bool
@@ -267,7 +267,7 @@ func (a App) View() string {
 		content = a.hub.View()
 		// Overlay a service-start prompt when needed
 		if a.startup == stateNeedsStart {
-			prompt := accentStyle.Copy().Bold(true).Render("Service stopped. Press Enter to start.")
+			prompt := accentStyle.Bold(true).Render("Service stopped. Press Enter to start.")
 			content = lipgloss.JoinVertical(lipgloss.Left, prompt, "", content)
 		}
 	case viewDashboard:
@@ -352,7 +352,7 @@ func (a App) renderBreadcrumb() string {
 	for i, v := range a.viewStack {
 		name := a.viewName(v)
 		if i == len(a.viewStack)-1 {
-			parts = append(parts, accentStyle.Copy().Bold(true).Render(name))
+			parts = append(parts, accentStyle.Bold(true).Render(name))
 		} else {
 			parts = append(parts, labelStyle.Render(name))
 		}
@@ -414,7 +414,7 @@ func (a App) renderPlaceholder() string {
 }
 
 func (a App) renderStartupChecking() string {
-	brand := accentStyle.Copy().Bold(true).Render("freshMango")
+	brand := accentStyle.Bold(true).Render("freshMango")
 	msg := dimStyle.Render("Checking system...")
 	block := lipgloss.JoinVertical(lipgloss.Center, brand, "", msg)
 

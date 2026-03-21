@@ -258,11 +258,11 @@ func (d DashboardModel) renderSingleCurve(fc nbfc.FanConfiguration, status *nbfc
 	return RenderCurveChart(fc.TemperatureThresholds, opts)
 }
 
-func renderBar(value, max float64, width int) string {
-	if max <= 0 {
-		max = 100
+func renderBar(value, maxVal float64, width int) string {
+	if maxVal <= 0 {
+		maxVal = 100
 	}
-	filled := int(value / max * float64(width))
+	filled := int(value / maxVal * float64(width))
 	if filled > width {
 		filled = width
 	}
@@ -273,9 +273,9 @@ func renderBar(value, max float64, width int) string {
 
 	var style lipgloss.Style
 	switch {
-	case value/max >= 0.8:
+	case value/maxVal >= 0.8:
 		style = redStyle
-	case value/max >= 0.6:
+	case value/maxVal >= 0.6:
 		style = yellowStyle
 	default:
 		style = greenStyle

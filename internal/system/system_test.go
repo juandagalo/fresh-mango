@@ -241,7 +241,7 @@ func TestFindMatchingConfigs_MatchesTwoWords(t *testing.T) {
 func TestFindMatchingConfigs_IgnoresShortWords(t *testing.T) {
 	configs := []string{
 		"HP Pavilion 15",
-		"HP Spectre x360",
+		"HP Spectre x360", //nolint:misspell // HP Spectre is the official product name
 	}
 	// "HP" is only 2 chars so it's ignored. "Pavilion" alone gives score=1,
 	// and the function requires score >= 2, so neither config matches.

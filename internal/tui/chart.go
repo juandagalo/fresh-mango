@@ -96,23 +96,24 @@ func RenderCurveChart(thresholds []nbfc.Threshold, opts ChartOptions) string {
 			isMarkerCol := j == markerCol && markerCol >= 0
 			isMarkerRow := i == markerRow && markerRow >= 0
 
-			if isMarkerCol && isMarkerRow {
+			switch {
+			case isMarkerCol && isMarkerRow:
 				sb.WriteString(crosshairStyle.Render("◆"))
-			} else if isMarkerCol {
+			case isMarkerCol:
 				if grid[i][j] {
 					sb.WriteString(crosshairStyle.Render("█"))
 				} else {
 					sb.WriteString(crosshairStyle.Render("┊"))
 				}
-			} else if isMarkerRow {
+			case isMarkerRow:
 				if grid[i][j] {
 					sb.WriteString(crosshairStyle.Render("█"))
 				} else {
 					sb.WriteString(crosshairStyle.Render("╌"))
 				}
-			} else if grid[i][j] {
+			case grid[i][j]:
 				sb.WriteString(accentStyle.Render("█"))
-			} else {
+			default:
 				sb.WriteString(" ")
 			}
 		}

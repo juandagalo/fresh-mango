@@ -46,8 +46,7 @@ func (h HubModel) Init() tea.Cmd {
 }
 
 func (h HubModel) Update(msg tea.Msg) (HubModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch msg.String() {
 		case "up", "k":
 			if h.selectedItem > 0 {
@@ -79,7 +78,7 @@ func (h HubModel) Update(msg tea.Msg) (HubModel, tea.Cmd) {
 func (h HubModel) View() string {
 	var sections []string
 
-	header := accentStyle.Copy().Bold(true).Render("freshMango")
+	header := accentStyle.Bold(true).Render("freshMango")
 	sections = append(sections, header)
 	sections = append(sections, "")
 
@@ -147,7 +146,7 @@ func (h HubModel) renderMenu() string {
 		if selected {
 			sb.WriteString(cursor)
 			sb.WriteString(accentStyle.Render(key))
-			sb.WriteString(accentStyle.Copy().Bold(true).Render(
+			sb.WriteString(accentStyle.Bold(true).Render(
 				fmt.Sprintf("%-16s", label)))
 			if !item.ready {
 				sb.WriteString(dimStyle.Render(desc))

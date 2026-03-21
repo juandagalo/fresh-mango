@@ -49,11 +49,11 @@ func withTestHooks(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(dst, data, 0644)
+		return os.WriteFile(dst, data, 0o644)
 	}
 
 	writeFn = func(data []byte, dest string) error {
-		return os.WriteFile(dest, data, 0644)
+		return os.WriteFile(dest, data, 0o644)
 	}
 
 	t.Cleanup(func() {
@@ -68,7 +68,7 @@ func writeTestConfig(t *testing.T, dir string, cfg *Config) {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	require.NoError(t, err, "marshal test config")
 	path := filepath.Join(dir, cfg.NotebookModel+".json")
-	require.NoError(t, os.WriteFile(path, data, 0644), "write test config")
+	require.NoError(t, os.WriteFile(path, data, 0o644), "write test config")
 }
 
 // ===========================================================================
@@ -402,7 +402,7 @@ func TestWriteConfigFile(t *testing.T) {
 		require.NoError(t, err)
 
 		cfgPath := filepath.Join(dir, "Test Model X1.json")
-		require.NoError(t, os.WriteFile(cfgPath, fixtureData, 0644))
+		require.NoError(t, os.WriteFile(cfgPath, fixtureData, 0o644))
 
 		// Read config through our struct (unknown fields are dropped).
 		cfg, err := ReadConfigFile("Test Model X1")
@@ -432,13 +432,16 @@ func TestWriteConfigFile(t *testing.T) {
 		fans, ok := result["FanConfigurations"].([]interface{})
 		require.True(t, ok)
 		require.Len(t, fans, 1)
-		fan0 := fans[0].(map[string]interface{})
+		fan0, ok := fans[0].(map[string]interface{})
+		require.True(t, ok, "fans[0] should be map[string]interface{}")
 		assert.Equal(t, "also-preserve-me", fan0["ExtraFanField"],
 			"fan-level unknown field should be preserved")
 
 		// Verify our modification was applied.
-		thresholds := fan0["TemperatureThresholds"].([]interface{})
-		thresh0 := thresholds[0].(map[string]interface{})
+		thresholds, ok := fan0["TemperatureThresholds"].([]interface{})
+		require.True(t, ok, "TemperatureThresholds should be []interface{}")
+		thresh0, ok := thresholds[0].(map[string]interface{})
+		require.True(t, ok, "thresholds[0] should be map[string]interface{}")
 		assert.Equal(t, float64(25), thresh0["FanSpeed"],
 			"modified threshold should be reflected in output")
 	})

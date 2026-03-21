@@ -5,9 +5,7 @@ import "github.com/charmbracelet/lipgloss"
 // Color palette — Warm Ember theme.
 var (
 	// Core palette
-	colorBg        = lipgloss.Color("#1C1917") // warm charcoal background
 	colorAccent    = lipgloss.Color("#F59E0B") // amber/orange — primary accent
-	colorSecondary = lipgloss.Color("#2DD4BF") // teal — secondary accent
 	colorGreen     = lipgloss.Color("#4ADE80") // fresh green — success
 	colorYellow    = lipgloss.Color("#FBBF24") // bright yellow-amber — warning
 	colorRed       = lipgloss.Color("#EF4444") // clear red — error/hot
@@ -17,18 +15,6 @@ var (
 	colorActiveBg  = lipgloss.Color("#3D2F1E") // dark amber tint — active surface
 	colorDimText   = lipgloss.Color("#44403C") // dark warm gray — disabled/dim
 	colorBorderDim = lipgloss.Color("#44403C") // warm gray — subtle borders
-	colorMuted     = lipgloss.Color("#78716C") // warm gray — secondary text
-
-	tabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Background(colorTabBg).
-			Foreground(colorSubtle)
-
-	activeTabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Background(colorActiveBg).
-			Foreground(colorAccent).
-			Bold(true)
 
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(colorText).
@@ -50,14 +36,11 @@ var (
 	valueStyle = lipgloss.NewStyle().
 			Foreground(colorText)
 
-	greenStyle     = lipgloss.NewStyle().Foreground(colorGreen)
-	yellowStyle    = lipgloss.NewStyle().Foreground(colorYellow)
-	redStyle       = lipgloss.NewStyle().Foreground(colorRed)
-	accentStyle    = lipgloss.NewStyle().Foreground(colorAccent)
-	accentDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#92400E"))
-	secondaryStyle = lipgloss.NewStyle().Foreground(colorSecondary)
-	dimStyle       = lipgloss.NewStyle().Foreground(colorDimText)
-	bgStyle        = lipgloss.NewStyle().Background(colorBg)
+	greenStyle  = lipgloss.NewStyle().Foreground(colorGreen)
+	yellowStyle = lipgloss.NewStyle().Foreground(colorYellow)
+	redStyle    = lipgloss.NewStyle().Foreground(colorRed)
+	accentStyle = lipgloss.NewStyle().Foreground(colorAccent)
+	dimStyle    = lipgloss.NewStyle().Foreground(colorDimText)
 )
 
 func tempColor(temp float64) lipgloss.Style {
